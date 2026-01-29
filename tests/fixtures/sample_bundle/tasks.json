@@ -1,0 +1,12 @@
+[
+  {
+    "task_id": "sample-task-1",
+    "task_prompt": "What is the capital of France?",
+    "reference_file": ""
+  },
+  {
+    "task_id": "sample-task-2",
+    "task_prompt": "What is 2 + 2?",
+    "reference_file": ""
+  }
+]

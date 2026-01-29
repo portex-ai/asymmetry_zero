@@ -1,0 +1,18 @@
+[
+  {
+    "task_id": "sample-task-1",
+    "answer": "Paris",
+    "reference_file": "",
+    "tools": [],
+    "criteria": [],
+    "passThreshold": 100
+  },
+  {
+    "task_id": "sample-task-2",
+    "answer": "4",
+    "reference_file": "",
+    "tools": [],
+    "criteria": [],
+    "passThreshold": 100
+  }
+]
