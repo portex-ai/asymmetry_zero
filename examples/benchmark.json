@@ -1,0 +1,17 @@
+[
+  {
+    "task": "What is the capital of France?",
+    "answer": "Paris",
+    "reference_file": ""
+  },
+  {
+    "task": "In what year did World War II end?",
+    "answer": "1945",
+    "reference_file": ""
+  },
+  {
+    "task": "What is the chemical symbol for water?",
+    "answer": "H2O",
+    "reference_file": ""
+  }
+]

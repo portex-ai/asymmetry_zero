@@ -19,6 +19,8 @@ __all__ = [
     # API
     "create_benchmark",
     "eval",
+    "format_bundle",
+    "induce_criteria",
     # Types
     "Benchmark",
     "EvalResults",
@@ -49,4 +51,12 @@ def __getattr__(name: str) -> object:
         from portex_eval.providers import Response
 
         return Response
+    if name == "format_bundle":
+        from portex_eval.bundle import format_bundle
+
+        return format_bundle
+    if name == "induce_criteria":
+        from portex_eval.bundle import induce_criteria
+
+        return induce_criteria
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

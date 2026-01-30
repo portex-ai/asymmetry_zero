@@ -1,0 +1,37 @@
+[
+  {
+    "task_id": "geography-001",
+    "answer": "Paris",
+    "reference_file": "",
+    "tools": [],
+    "criteria": [],
+    "passThreshold": 100
+  },
+  {
+    "task_id": "history-001",
+    "answer": "1945",
+    "reference_file": "",
+    "tools": [],
+    "criteria": [
+      {
+        "id": "history-001-c1",
+        "name": "correct-year",
+        "description": "States that World War II ended in 1945.",
+        "type": "semantic",
+        "weight": 100,
+        "rationale": "The year 1945 is the canonical answer for the end of WWII.",
+        "examples": [],
+        "semanticPrompt": "The response must state that World War II ended in 1945."
+      }
+    ],
+    "passThreshold": 100
+  },
+  {
+    "task_id": "science-001",
+    "answer": "H2O",
+    "reference_file": "",
+    "tools": [],
+    "criteria": [],
+    "passThreshold": 100
+  }
+]

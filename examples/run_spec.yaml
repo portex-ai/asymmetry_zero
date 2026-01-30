@@ -1,0 +1,14 @@
+schema_version: 1
+
+# Path to the evaluation bundle directory
+bundle_path: ./simple_bundle
+
+# Judge models used for grading (3-judge panel recommended)
+judges:
+  - openrouter:openai/gpt-4o
+  - openrouter:anthropic/claude-3.5-sonnet
+  - openrouter:google/gemini-2.5-flash
+
+# Candidate models to evaluate
+candidates:
+  - openrouter:meta-llama/llama-3.3-70b-instruct

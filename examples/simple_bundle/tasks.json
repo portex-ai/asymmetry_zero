@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "prompts": [
+    {
+      "task_id": "geography-001",
+      "task_prompt": "What is the capital of France?",
+      "reference_file": ""
+    },
+    {
+      "task_id": "history-001",
+      "task_prompt": "In what year did World War II end?",
+      "reference_file": ""
+    },
+    {
+      "task_id": "science-001",
+      "task_prompt": "What is the chemical symbol for water?",
+      "reference_file": ""
+    }
+  ]
+}
