@@ -48,9 +48,7 @@ def create_benchmark(path: str) -> Benchmark:
 
     for idx, entry in enumerate(payload):
         if not isinstance(entry, dict):
-            raise PortexEvalError(
-                f"Task entry at index {idx} must be an object: {input_path}"
-            )
+            raise PortexEvalError(f"Task entry at index {idx} must be an object: {input_path}")
         task = entry.get("task")
         answer = entry.get("answer")
         reference_file = entry.get("reference_file") or ""
@@ -60,9 +58,7 @@ def create_benchmark(path: str) -> Benchmark:
         if not isinstance(answer, str):
             raise PortexEvalError(f"answer must be a string for entry {idx}: {input_path}")
         if not isinstance(reference_file, str):
-            raise PortexEvalError(
-                f"reference_file must be a string for entry {idx}: {input_path}"
-            )
+            raise PortexEvalError(f"reference_file must be a string for entry {idx}: {input_path}")
 
         task_id = str(uuid.uuid4())
         tasks.append(
@@ -88,9 +84,7 @@ def create_benchmark(path: str) -> Benchmark:
             if not src_path.is_absolute():
                 src_path = input_path.parent / src_path
             if not src_path.is_file():
-                raise PortexEvalError(
-                    f"reference_file not found for entry {idx}: {src_path}"
-                )
+                raise PortexEvalError(f"reference_file not found for entry {idx}: {src_path}")
             dest_path = refs_dir / reference_file
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src_path, dest_path)
@@ -110,8 +104,27 @@ def eval(
     output_dir: str | None = None,
     config: Config | None = None,
     task_spec: str | None = None,
+    overwrite: bool = False,
 ) -> EvalResults:
-    """Run an evaluation benchmark and return results."""
+    """Run an evaluation benchmark and return results.
+
+    Args:
+        path: Path to the bundle directory (mutually exclusive with benchmark).
+        benchmark: Benchmark instance (mutually exclusive with path).
+        judges: List of judge model identifiers.
+        candidates: List of candidate model identifiers.
+        output_dir: Output directory for run results. Defaults to ./eval_runs/<run_id>/.
+        config: Runtime configuration. Defaults to Config.from_env().
+        task_spec: Task specification override.
+        overwrite: If True, allow overwriting existing output directories.
+            Defaults to False to prevent accidental data loss.
+
+    Returns:
+        EvalResults with paths to logs, reports, and rewards.
+
+    Raises:
+        PortexEvalError: If validation fails or output directory exists without overwrite.
+    """
     from portex_eval.benchmark.run import benchmark_one
 
     if (path is None) == (benchmark is None):
@@ -159,13 +172,13 @@ def eval(
                 eval_runs_root=str(runs_root),
                 model_endpoint=candidate,
                 task_spec=task_spec,
+                overwrite=overwrite,
             )
             eval_logs.append(result.eval_log)
             last_run_id = result.run_id
             last_output_dir = result.output_dir
 
             reports_dir = Path(result.output_dir) / "reports"
-            reports_dir.mkdir(parents=True, exist_ok=True)
             from portex_eval.reporting import tables as report_tables
 
             report_tables.run(result.eval_log, str(reports_dir))
@@ -175,7 +188,13 @@ def eval(
                 criterion_level=str(reports_dir / "criterion_level.csv"),
                 judgement_level=str(reports_dir / "judgement_level.csv"),
             )
-            rewards_path = _write_rewards(report_paths.task_level, Path(result.output_dir))
+
+            from portex_eval.rewards import extract_rewards, write_rewards
+
+            task_scores = extract_rewards(report_paths.task_level)
+            rewards_path = write_rewards(
+                task_scores, str(Path(result.output_dir) / "rl_rewards.txt")
+            )
 
             last_reports = report_paths
             last_rewards = rewards_path
@@ -238,9 +257,7 @@ def _validate_tasks_json(tasks_path: Path) -> set[str]:
     if isinstance(payload, dict):
         version = payload.get("version")
         if version != 2:
-            raise PortexEvalError(
-                f"tasks.json must have version=2 (got {version!r}): {tasks_path}"
-            )
+            raise PortexEvalError(f"tasks.json must have version=2 (got {version!r}): {tasks_path}")
         prompts = payload.get("prompts")
         if not isinstance(prompts, list):
             raise PortexEvalError(f"tasks.json prompts must be a list: {tasks_path}")
@@ -280,9 +297,7 @@ def _validate_answers_json(answers_path: Path, task_ids: set[str]) -> None:
 
     for idx, record in enumerate(payload):
         if not isinstance(record, dict):
-            raise PortexEvalError(
-                f"answers.json entry {idx} must be an object: {answers_path}"
-            )
+            raise PortexEvalError(f"answers.json entry {idx} must be an object: {answers_path}")
         task_id = record.get("task_id")
         answer = record.get("answer")
         if not isinstance(task_id, str) or not task_id.strip():
@@ -295,29 +310,3 @@ def _validate_answers_json(answers_path: Path, task_ids: set[str]) -> None:
             raise PortexEvalError(
                 f"answers.json entry {idx} answer must be a string: {answers_path}"
             )
-
-
-def _write_rewards(task_level_csv: str, output_dir: Path) -> str:
-    import csv
-
-    rewards_path = output_dir / "rl_rewards.txt"
-    with open(task_level_csv, newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        if (
-            not reader.fieldnames
-            or "task_id" not in reader.fieldnames
-            or "score" not in reader.fieldnames
-        ):
-            raise PortexEvalError(
-                f"task_level.csv missing task_id/score columns: {task_level_csv}"
-            )
-        rows = list(reader)
-
-    with rewards_path.open("w", encoding="utf-8") as handle:
-        for row in rows:
-            task_id = row.get("task_id")
-            score = row.get("score")
-            if task_id is None or score is None:
-                continue
-            handle.write(f"{task_id} {score}\n")
-    return str(rewards_path)

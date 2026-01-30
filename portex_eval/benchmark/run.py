@@ -12,7 +12,7 @@ from portex_eval.benchmark.inspect.main import run_inspect_eval
 
 # Local defaults (simplified from portex_eval.config)
 DEFAULT_EVAL_BUNDLES_ROOT = os.getenv("PORTEX_EVAL_BUNDLES_ROOT", "./bundles")
-DEFAULT_EVAL_RUNS_ROOT = os.getenv("PORTEX_EVAL_RUNS_ROOT", "./runs")
+DEFAULT_EVAL_RUNS_ROOT = os.getenv("PORTEX_EVAL_RUNS_ROOT", "./eval_runs")
 
 
 @dataclass
@@ -78,6 +78,7 @@ def benchmark_one(
     eval_runs_root: str | None = None,
     model_endpoint: str,
     task_spec: str | None = None,
+    overwrite: bool = False,
 ) -> BenchmarkResult:
     """Run a single benchmark evaluation.
 
@@ -87,9 +88,14 @@ def benchmark_one(
         eval_runs_root: Root directory for eval run outputs
         model_endpoint: Model identifier (e.g., "openrouter/google/gemini-2.5-flash")
         task_spec: Task specification (defaults to portex_qa_eval)
+        overwrite: If True, allow overwriting existing output directories.
+            Defaults to False to prevent accidental data loss.
 
     Returns:
         BenchmarkResult with run details
+
+    Raises:
+        ValueError: If output directory already exists and overwrite is False.
     """
     index_root = index_root or DEFAULT_EVAL_BUNDLES_ROOT
     eval_runs_root = eval_runs_root or DEFAULT_EVAL_RUNS_ROOT
@@ -105,8 +111,17 @@ def benchmark_one(
     except Exception:
         rel = os.path.basename(bundle_dir.rstrip("/"))
     output_dir = os.path.join(eval_runs_root, rel, run_id)
+
+    if os.path.exists(output_dir) and not overwrite:
+        raise ValueError(
+            f"Output directory already exists: {output_dir}. "
+            "Use overwrite=True to allow overwriting."
+        )
+
     logs_dir = os.path.join(output_dir, "logs")
+    reports_dir = os.path.join(output_dir, "reports")
     os.makedirs(logs_dir, exist_ok=True)
+    os.makedirs(reports_dir, exist_ok=True)
 
     report_path = os.path.join(output_dir, "report.json")
     report = run_inspect_eval(
@@ -175,6 +190,7 @@ def benchmark_matrix(
     index_root: str | None = None,
     eval_runs_root: str | None = None,
     task_spec: str | None = None,
+    overwrite: bool = False,
 ) -> BenchmarkMatrixResult:
     """Run benchmarks across multiple bundles and models.
 
@@ -184,6 +200,7 @@ def benchmark_matrix(
         index_root: Root directory for bundles
         eval_runs_root: Root directory for eval run outputs
         task_spec: Task specification
+        overwrite: If True, allow overwriting existing output directories.
 
     Returns:
         BenchmarkMatrixResult containing all run results
@@ -198,6 +215,7 @@ def benchmark_matrix(
                     eval_runs_root=eval_runs_root,
                     model_endpoint=model,
                     task_spec=task_spec,
+                    overwrite=overwrite,
                 )
             )
     return BenchmarkMatrixResult(results=results)

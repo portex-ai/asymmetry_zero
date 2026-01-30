@@ -146,9 +146,7 @@ def _build_events_df(log_path: str) -> pd.DataFrame:
     events = events_df(logs=log_path, columns=columns)
     events = events[events["model_event_model"].notna()].copy()
     events["model_event_cost"] = events["model_event_call"].apply(_event_call_cost)
-    events["model_event_criterion_prompt"] = events["model_event_call"].apply(
-        _event_call_criterion
-    )
+    events["model_event_criterion_prompt"] = events["model_event_call"].apply(_event_call_criterion)
     return events
 
 
@@ -234,9 +232,7 @@ def _build_eval_level(
             "cost": None,
         }
 
-    candidate_events = _filter_events(
-        events, "candidate", [solver_model] if solver_model else None
-    )
+    candidate_events = _filter_events(events, "candidate", [solver_model] if solver_model else None)
     grader_events = _filter_events(events, "grader", list(judge_models))
     candidate_summary = _summarize_events(candidate_events)
     grader_summary = _summarize_events(grader_events)

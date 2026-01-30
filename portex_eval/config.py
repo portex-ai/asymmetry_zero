@@ -18,12 +18,12 @@ class Config:
 
     Attributes:
         bundles_dir: Local directory for eval bundles. Defaults to ./bundles.
-        runs_dir: Local directory for run outputs. Defaults to ./runs.
+        runs_dir: Local directory for run outputs. Defaults to ./eval_runs.
         cache_dir: Local cache directory. Defaults to ./.portex_cache.
     """
 
     bundles_dir: str = field(default_factory=lambda: os.getenv("PORTEX_BUNDLES_DIR", "./bundles"))
-    runs_dir: str = field(default_factory=lambda: os.getenv("PORTEX_RUNS_DIR", "./runs"))
+    runs_dir: str = field(default_factory=lambda: os.getenv("PORTEX_RUNS_DIR", "./eval_runs"))
     cache_dir: str = field(default_factory=lambda: os.getenv("PORTEX_CACHE_DIR", "./.portex_cache"))
 
     def resolve_bundle_path(self, bundle_name: str) -> Path:
@@ -91,7 +91,7 @@ class Config:
         """
         return cls(
             bundles_dir=data.get("bundles_dir", os.getenv("PORTEX_BUNDLES_DIR", "./bundles")),
-            runs_dir=data.get("runs_dir", os.getenv("PORTEX_RUNS_DIR", "./runs")),
+            runs_dir=data.get("runs_dir", os.getenv("PORTEX_RUNS_DIR", "./eval_runs")),
             cache_dir=data.get("cache_dir", os.getenv("PORTEX_CACHE_DIR", "./.portex_cache")),
         )
 
