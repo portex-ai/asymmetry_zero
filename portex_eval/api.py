@@ -260,8 +260,10 @@ def _validate_tasks_json(tasks_path: Path) -> set[str]:
     payload = _load_json(tasks_path)
     if isinstance(payload, dict):
         version = payload.get("version")
-        if version != 2:
-            raise PortexEvalError(f"tasks.json must have version=2 (got {version!r}): {tasks_path}")
+        if version is not None and not isinstance(version, int):
+            raise PortexEvalError(
+                f"tasks.json version must be an integer when provided: {tasks_path}"
+            )
         prompts = payload.get("prompts")
         if not isinstance(prompts, list):
             raise PortexEvalError(f"tasks.json prompts must be a list: {tasks_path}")
