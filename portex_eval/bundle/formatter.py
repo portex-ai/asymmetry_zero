@@ -121,6 +121,8 @@ def format_bundle(
         provider = get_provider(judge_model)
         task_prompts = {task["task_id"]: task["task_prompt"] for task in tasks}
         answers = _induce_criteria_for_answers(answers, task_prompts, provider)
+    else:
+        answers = _fill_default_criteria_for_answers(answers)
 
     _write_tasks_v2(output_dir / "tasks.json", tasks)
     _write_answers(output_dir / "answers.json", answers)
@@ -276,13 +278,21 @@ def _normalize_answers(data: Any, source_path: Path) -> list[dict[str, Any]]:
                 f"answers.json entry {idx} answer must be a string: {source_path}"
             )
 
+        criteria = record.get("criteria", [])
+        if criteria is None:
+            criteria = []
+        if not isinstance(criteria, list):
+            raise PortexEvalError(
+                f"answers.json entry {idx} criteria must be a list: {source_path}"
+            )
+
         answers.append(
             {
                 "task_id": task_id,
                 "answer": answer,
                 "reference_file": record.get("reference_file", ""),
                 "tools": record.get("tools", []),
-                "criteria": record.get("criteria", []),
+                "criteria": criteria,
                 "passThreshold": record.get("passThreshold", 100),
             }
         )
@@ -355,6 +365,43 @@ def _induce_criteria_for_answers(
 
         updated_answer = answer.copy()
         updated_answer["criteria"] = criteria
+        updated_answers.append(updated_answer)
+
+    return updated_answers
+
+
+def _default_criteria(task_id: str, answer: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": f"{task_id}-c1",
+            "name": "",
+            "description": answer,
+            "type": "semantic",
+            "weight": 100,
+            "rationale": "",
+            "examples": [],
+            "semanticPrompt": answer,
+        }
+    ]
+
+
+def _fill_default_criteria_for_answers(
+    answers: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Fill empty criteria with a single answer-derived criterion."""
+    updated_answers: list[dict[str, Any]] = []
+
+    for answer in answers:
+        criteria = answer.get("criteria", [])
+        if criteria:
+            updated_answers.append(answer)
+            continue
+
+        task_id = answer["task_id"]
+        answer_text = answer["answer"]
+
+        updated_answer = answer.copy()
+        updated_answer["criteria"] = _default_criteria(task_id, answer_text)
         updated_answers.append(updated_answer)
 
     return updated_answers

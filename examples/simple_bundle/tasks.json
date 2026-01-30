@@ -15,6 +15,11 @@
       "task_id": "science-001",
       "task_prompt": "What is the chemical symbol for water?",
       "reference_file": ""
+    },
+    {
+      "task_id": "fiction-001",
+      "task_prompt": "Identify the fictional character in the referenced image",
+      "reference_file": "fiction-001.webp"
     }
   ]
 }

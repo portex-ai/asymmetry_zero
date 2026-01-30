@@ -33,5 +33,13 @@
     "tools": [],
     "criteria": [],
     "passThreshold": 100
+  },
+  {
+    "task_id": "fiction-001",
+    "answer": "Halaster Blackcloak",
+    "reference_file": "",
+    "tools": [],
+    "criteria": [],
+    "passThreshold": 100
   }
 ]

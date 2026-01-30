@@ -27,6 +27,8 @@ dependencies = [
     "pandas>=2.0",
     "python-dotenv>=1.0.0",
     "typer>=0.9.0",
+    "pyarrow",
+    "openai"
 ]
 
 [project.scripts]
@@ -35,6 +37,7 @@ portex-eval = "portex_eval.cli:app"
 [project.optional-dependencies]
 providers = [
     "httpx>=0.25.0",
+    "openai",
 ]
 inspect = [
     "inspect-ai>=0.3.0",
@@ -42,6 +45,8 @@ inspect = [
 all = [
     "httpx>=0.25.0",
     "inspect-ai>=0.3.0",
+    "openai",
+    "pyarrow",
 ]
 dev = [
     "httpx>=0.25.0",
@@ -49,6 +54,8 @@ dev = [
     "pandas>=2.0",
     "pandas-stubs>=2.0",
     "python-dotenv>=1.0.0",
+    "openai",
+    "pyarrow",
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "mypy>=1.0",
