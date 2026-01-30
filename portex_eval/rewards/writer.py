@@ -1,24 +1,16 @@
-"""Writer for RL rewards file.
+"""Writer for RL rewards JSON.
 
-Implements extraction and writing of task scores to the rl_rewards.txt format
-specified in the phase-3 documentation.
-
-File format (rl_rewards.txt):
-    - One line per task
-    - Space-separated: task_id score
-    - Score on 0-100 scale
-    - No header row
-
-Example:
-    kljakljsd-aklkjhl-1 87.5
-    kljakljsd-aklkjhl-2 100.0
-    kljakljsd-aklkjhl-3 0.0
+Implements extraction and writing of task scores to a JSON payload with
+task_ids and reward arrays.
 """
 
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
+
+from portex_eval.types import Rewards
 
 
 def extract_rewards(task_level_csv: str) -> list[tuple[str, float]]:
@@ -69,8 +61,15 @@ def extract_rewards(task_level_csv: str) -> list[tuple[str, float]]:
     return rewards
 
 
+def build_rewards(task_scores: list[tuple[str, float]]) -> Rewards:
+    """Build reward payload from task score tuples."""
+    task_ids = [task_id for task_id, _ in task_scores]
+    rewards = [score for _, score in task_scores]
+    return Rewards(task_ids=task_ids, reward=rewards)
+
+
 def write_rewards(task_scores: list[tuple[str, float]], path: str) -> str:
-    """Write task scores to an rl_rewards.txt file.
+    """Write task scores to an rl_rewards.json file.
 
     Args:
         task_scores: List of (task_id, score) tuples.
@@ -83,7 +82,7 @@ def write_rewards(task_scores: list[tuple[str, float]], path: str) -> str:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with output_path.open("w", encoding="utf-8") as handle:
-        for task_id, score in task_scores:
-            handle.write(f"{task_id} {score}\n")
+        payload = build_rewards(task_scores)
+        json.dump({"task_ids": payload.task_ids, "reward": payload.reward}, handle, indent=2)
 
     return str(output_path.resolve())

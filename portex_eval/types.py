@@ -11,6 +11,14 @@ from pathlib import Path
 
 
 @dataclass(frozen=True)
+class Rewards:
+    """Reward payload for tasks."""
+
+    task_ids: list[str] = field(default_factory=list)
+    reward: list[float] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class Benchmark:
     """Minimal benchmark description returned by create_benchmark().
 
@@ -50,14 +58,16 @@ class EvalResults:
     Attributes:
         logs: Paths to Inspect .log/.eval files.
         reports: Paths to CSV output reports.
-        rewards: Path to rl_rewards.txt.
+        rewards: Reward payload with task_ids and reward list.
+        rewards_path: Path to rewards JSON file.
         run_id: Run identifier.
         output_dir: Output directory for this run.
     """
 
     logs: list[str] = field(default_factory=list)
     reports: ReportPaths | None = None
-    rewards: str = ""
+    rewards: Rewards = field(default_factory=Rewards)
+    rewards_path: str = ""
     run_id: str = ""
     output_dir: str = ""
 
@@ -74,7 +84,8 @@ class EvalResults:
         return EvalResults(
             logs=[str(Path(p).resolve()) for p in self.logs],
             reports=reports,
-            rewards=str(Path(self.rewards).resolve()) if self.rewards else "",
+            rewards=self.rewards,
+            rewards_path=str(Path(self.rewards_path).resolve()) if self.rewards_path else "",
             run_id=self.run_id,
             output_dir=str(Path(self.output_dir).resolve()) if self.output_dir else "",
         )

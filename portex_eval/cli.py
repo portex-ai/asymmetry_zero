@@ -148,8 +148,9 @@ def run(
             typer.echo(f"  - Task level: {result.reports.task_level}")
             typer.echo(f"  - Criterion level: {result.reports.criterion_level}")
             typer.echo(f"  - Judgement level: {result.reports.judgement_level}")
-        if result.rewards:
-            typer.echo(f"Rewards: {result.rewards}")
+        if result.rewards_path:
+            typer.echo(f"Rewards JSON: {result.rewards_path}")
+            typer.echo(f"Rewards entries: {len(result.rewards.task_ids)}")
     except PortexEvalError as exc:
         typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from None

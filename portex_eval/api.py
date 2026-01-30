@@ -12,7 +12,7 @@ from typing import Any
 from portex_eval.config import Config
 from portex_eval.errors import PortexEvalError
 from portex_eval.providers import get_provider, parse_model_string
-from portex_eval.types import Benchmark, EvalResults, ReportPaths
+from portex_eval.types import Benchmark, EvalResults, ReportPaths, Rewards
 
 
 def create_benchmark(path: str) -> Benchmark:
@@ -162,7 +162,8 @@ def eval(
     last_run_id = ""
     last_output_dir = ""
     last_reports: ReportPaths | None = None
-    last_rewards = ""
+    last_rewards: Rewards | None = None
+    last_rewards_path = ""
 
     try:
         for candidate in candidate_models:
@@ -189,15 +190,17 @@ def eval(
                 judgement_level=str(reports_dir / "judgement_level.csv"),
             )
 
-            from portex_eval.rewards import extract_rewards, write_rewards
+            from portex_eval.rewards import build_rewards, extract_rewards, write_rewards
 
             task_scores = extract_rewards(report_paths.task_level)
             rewards_path = write_rewards(
-                task_scores, str(Path(result.output_dir) / "rl_rewards.txt")
+                task_scores, str(Path(result.output_dir) / "rl_rewards.json")
             )
+            rewards_payload = build_rewards(task_scores)
 
             last_reports = report_paths
-            last_rewards = rewards_path
+            last_rewards = rewards_payload
+            last_rewards_path = rewards_path
     finally:
         if previous_judge_models is None:
             os.environ.pop("PORTEX_JUDGE_MODELS", None)
@@ -210,7 +213,8 @@ def eval(
     results = EvalResults(
         logs=eval_logs,
         reports=last_reports,
-        rewards=last_rewards,
+        rewards=last_rewards or Rewards(),
+        rewards_path=last_rewards_path,
         run_id=last_run_id,
         output_dir=last_output_dir,
     )
