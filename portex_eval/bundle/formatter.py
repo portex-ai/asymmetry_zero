@@ -16,7 +16,7 @@ from typing import Any
 from portex_eval.errors import PortexEvalError
 from portex_eval.providers import Provider, get_provider
 
-DEFAULT_JUDGE_MODEL = "openrouter:google/gemini-2.5-flash"
+DEFAULT_JUDGE_MODEL = "openrouter:deepseek/deepseek-v3.1-terminus"
 
 CRITERIA_INDUCTION_PROMPT = """\
 You are an expert at creating evaluation criteria for AI assistant responses.
