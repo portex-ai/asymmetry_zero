@@ -209,19 +209,18 @@ def _write_json(path: Path, data: Any) -> None:
 def _normalize_tasks(data: Any, source_path: Path) -> list[dict[str, Any]]:
     """Normalize tasks data to a list of task records.
 
-    Handles both v1 (list) and v2 (object with version and prompts) formats.
+    Handles both  (list) and v (object with version and prompts) formats.
     """
     if isinstance(data, dict):
+        prompts = data.get("prompts")
         version = data.get("version")
-        if version == 2:
-            prompts = data.get("prompts")
-            if not isinstance(prompts, list):
-                raise PortexEvalError(f"tasks.json prompts must be a list: {source_path}")
-            records = prompts
-        else:
+        if version is not None and not isinstance(version, int):
             raise PortexEvalError(
-                f"tasks.json object format requires version=2 (got {version!r}): {source_path}"
+                f"tasks.json version must be an integer when provided: {source_path}"
             )
+        if not isinstance(prompts, list):
+            raise PortexEvalError(f"tasks.json prompts must be a list: {source_path}")
+        records = prompts
     elif isinstance(data, list):
         records = data
     else:
