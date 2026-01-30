@@ -1,8 +1,9 @@
+import json
 from mimetypes import guess_type
 from pathlib import Path
 from typing import Any
 
-from inspect_ai.dataset import Sample, json_dataset
+from inspect_ai.dataset import MemoryDataset, Sample, json_dataset
 from inspect_ai.model import (
     ChatMessageUser,
     ContentDocument,
@@ -12,7 +13,8 @@ from inspect_ai.model import (
 
 
 def dataset_generator(index_path: str) -> Any:
-    data_root = Path(index_path).parent
+    data_path = Path(index_path)
+    data_root = data_path.parent
 
     def content_from_reference(reference_path: Path) -> ContentDocument | ContentImage:
         mime_type = guess_type(reference_path.as_posix())[0]
@@ -43,5 +45,26 @@ def dataset_generator(index_path: str) -> Any:
             metadata={"reference_file": reference_file},
         )
 
-    dataset = json_dataset(index_path, record_to_sample)
-    return dataset
+    if data_path.suffix.lower() != ".jsonl":
+        try:
+            payload = json.loads(data_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = None
+
+        if isinstance(payload, dict) and isinstance(payload.get("prompts"), list):
+            samples = [record_to_sample(record) for record in payload["prompts"]]
+            return MemoryDataset(
+                samples=samples,
+                name=data_path.stem,
+                location=data_path.as_posix(),
+            )
+
+        if isinstance(payload, list):
+            samples = [record_to_sample(record) for record in payload]
+            return MemoryDataset(
+                samples=samples,
+                name=data_path.stem,
+                location=data_path.as_posix(),
+            )
+
+    return json_dataset(index_path, record_to_sample)
