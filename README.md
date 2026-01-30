@@ -2,7 +2,7 @@
 
 **Open-source evaluation framework for LLM judges and candidates**
 
-`portex-eval` exposes the grading methodology used at [Portex](https://portex.ai) without distributing private eval-bundles. It runs benchmark workflows on user-provided bundles, emits standardized artifacts, and outputs task-level rewards for RL training pipelines.
+`portex-eval` exposes the grading methodology used at [Portex](https://portexai.com) without distributing private eval-bundles. It runs benchmark workflows on user-provided bundles, emits standardized artifacts, and outputs task-level rewards for RL training pipelines.
 
 ## Features
 
