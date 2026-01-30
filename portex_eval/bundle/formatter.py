@@ -16,7 +16,7 @@ from typing import Any
 from portex_eval.errors import PortexEvalError
 from portex_eval.providers import Provider, get_provider
 
-DEFAULT_JUDGE_MODEL = "openrouter:deepseek/deepseek-v3.1-terminus"
+DEFAULT_CRITERIA_INDUCTION_MODEL = "openrouter:deepseek/deepseek-v3.1-terminus"
 
 CRITERIA_INDUCTION_PROMPT = """\
 You are an expert at creating evaluation criteria for AI assistant responses.
@@ -77,7 +77,7 @@ def format_bundle(
     output_dir: str | Path,
     *,
     induce_criteria_flag: bool = False,
-    judge_model: str = DEFAULT_JUDGE_MODEL,
+    judge_model: str = DEFAULT_CRITERIA_INDUCTION_MODEL,
 ) -> FormattedBundle:
     """Format a bundle to v2 format with optional criteria induction.
 
@@ -138,7 +138,7 @@ def format_bundle(
 def induce_criteria(
     answer: str,
     task_prompt: str,
-    judge_model: str = DEFAULT_JUDGE_MODEL,
+    judge_model: str = DEFAULT_CRITERIA_INDUCTION_MODEL,
 ) -> list[dict[str, Any]]:
     """Induce evaluation criteria from a reference answer using an LLM.
 
