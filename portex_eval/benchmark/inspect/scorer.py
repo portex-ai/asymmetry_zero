@@ -32,10 +32,39 @@ logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=4)
+def _default_criteria(task_id: str, answer: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": f"{task_id}-c1",
+            "name": "",
+            "description": answer,
+            "type": "semantic",
+            "weight": 100,
+            "rationale": "",
+            "examples": [],
+            "semanticPrompt": answer,
+        }
+    ]
+
+
 def _load_answer_key(path: str) -> dict[str, dict[str, Any]]:
     with open(path, encoding="utf-8") as handle:
         data = json.load(handle)
-    return {item["task_id"]: item for item in data}
+    answer_key: dict[str, dict[str, Any]] = {}
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        task_id = item.get("task_id")
+        answer = item.get("answer")
+        if not isinstance(task_id, str):
+            continue
+        if not isinstance(answer, str):
+            answer = ""
+        criteria = item.get("criteria")
+        if not isinstance(criteria, list) or not criteria:
+            item = {**item, "criteria": _default_criteria(task_id, answer)}
+        answer_key[task_id] = item
+    return answer_key
 
 
 def _criterion_prompt(criterion: dict[str, Any]) -> str:
