@@ -173,12 +173,6 @@ def benchmark_one(
 
     _write_manifest(os.path.join(output_dir, "manifest.json"), manifest_payload)
 
-    try:
-        if eval_log and os.path.isfile(eval_log):
-            shutil.copyfile(eval_log, os.path.join(output_dir, os.path.basename(eval_log)))
-    except OSError:
-        pass
-
     return BenchmarkResult(
         run_id=run_id, output_dir=output_dir, eval_log=eval_log, report_path=report_path
     )
