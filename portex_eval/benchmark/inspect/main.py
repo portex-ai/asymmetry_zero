@@ -68,7 +68,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run Inspect eval for Portex Eval")
     parser.add_argument(
         "--report-path",
-        default=os.getenv("REPORT_PATH", "./runs/report.json"),
+        default=os.getenv("REPORT_PATH", "./runs/manifest.json"),
     )
     parser.add_argument(
         "--log-dir",

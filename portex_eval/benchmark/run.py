@@ -123,7 +123,7 @@ def benchmark_one(
     os.makedirs(logs_dir, exist_ok=True)
     os.makedirs(reports_dir, exist_ok=True)
 
-    report_path = os.path.join(output_dir, "report.json")
+    report_path = os.path.join(output_dir, "manifest.json")
     report = run_inspect_eval(
         log_dir=logs_dir,
         report_path=report_path,
@@ -150,7 +150,7 @@ def benchmark_one(
         "bundle_manifest": bundle_manifest,
     }
 
-    # Enrich report.json with identifiers so it can be linked back to the bundle/version.
+    # Enrich manifest.json with identifiers so it can be linked back to the bundle/version.
     try:
         if os.path.isfile(report_path):
             with open(report_path, encoding="utf-8") as f:
@@ -171,7 +171,7 @@ def benchmark_one(
     except OSError:
         pass
 
-    _write_manifest(os.path.join(output_dir, "manifest.json"), manifest_payload)
+    _write_manifest(report_path, report_obj)
 
     return BenchmarkResult(
         run_id=run_id, output_dir=output_dir, eval_log=eval_log, report_path=report_path
