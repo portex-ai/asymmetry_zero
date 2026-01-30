@@ -34,7 +34,9 @@ def create_benchmark(path: str) -> Benchmark:
             f"Benchmark JSON must be a list of tasks, got {type(payload).__name__}: {input_path}"
         )
 
-    output_dir = input_path.with_suffix("")
+    base_output_dir = input_path.with_suffix("")
+    suffix = uuid.uuid4().hex[:8]
+    output_dir = base_output_dir.with_name(f"{base_output_dir.name}_{suffix}")
     if output_dir.exists() and output_dir.is_file():
         raise PortexEvalError(f"Output path is a file: {output_dir}")
     if output_dir.exists() and any(output_dir.iterdir()):
