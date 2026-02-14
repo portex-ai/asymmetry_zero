@@ -14,6 +14,22 @@
 
 ## Installation
 
+With [UV](https://docs.astral.sh/uv/) (recommended):
+
+```bash
+uv tool install portex-eval
+```
+
+Or from source (e.g. for development):
+
+```bash
+git clone https://github.com/portex-ai/portex-eval && cd portex-eval
+uv sync
+uv run portex-eval --help
+```
+
+With pip:
+
 ```bash
 pip install portex-eval
 ```
@@ -21,7 +37,8 @@ pip install portex-eval
 For full functionality including providers and Inspect integration:
 
 ```bash
-pip install portex-eval[all]
+uv tool install 'portex-eval[all]'
+# or: pip install portex-eval[all]
 ```
 
 ## Quick Start
@@ -67,9 +84,12 @@ results = eval(
 
 ### Using the CLI
 
+If you installed with `uv tool install`, run `portex-eval` directly. If you used `uv sync` from source, use `uv run portex-eval`:
+
 ```bash
 # Format a benchmark.json into a Portex bundle
 portex-eval format mybench.json
+# or from source: uv run portex-eval format mybench.json
 
 # Run an evaluation
 portex-eval run --bundle ./mybenchmark \

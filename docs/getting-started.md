@@ -11,6 +11,14 @@ This guide walks through installing `portex-eval` and running your first evaluat
 
 ### Basic installation
 
+With [UV](https://docs.astral.sh/uv/) (recommended):
+
+```bash
+uv tool install portex-eval
+```
+
+With pip:
+
 ```bash
 pip install portex-eval
 ```
@@ -18,7 +26,8 @@ pip install portex-eval
 ### Full installation with all features
 
 ```bash
-pip install portex-eval[all]
+uv tool install 'portex-eval[all]'
+# or: pip install portex-eval[all]
 ```
 
 This includes:
@@ -26,6 +35,17 @@ This includes:
 - **inspect** - Inspect AI integration for logging and analysis
 
 ### Development installation
+
+With UV (recommended):
+
+```bash
+git clone https://github.com/portex-ai/portex-eval.git
+cd portex-eval
+uv sync
+uv run portex-eval --help
+```
+
+With pip:
 
 ```bash
 git clone https://github.com/portex-ai/portex-eval.git

@@ -17,16 +17,26 @@ git clone https://github.com/portex-ai/portex-eval.git
 cd portex-eval
 ```
 
-### Create a virtual environment
+### Create a virtual environment and install dependencies
+
+With [UV](https://docs.astral.sh/uv/) (recommended):
+
+```bash
+uv sync
+```
+
+UV creates a `.venv` and installs the project with dev dependencies (pytest, mypy, ruff, etc.). Run commands with `uv run`:
+
+```bash
+uv run pytest
+uv run portex-eval --help
+```
+
+With pip:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-```
-
-### Install dependencies
-
-```bash
 pip install -e .[dev]
 ```
 
@@ -46,6 +56,8 @@ cp .env.example .env
 ## Development Workflow
 
 ### Running tests
+
+If you use UV, prefix commands with `uv run` (e.g. `uv run pytest`).
 
 ```bash
 # Run all tests
