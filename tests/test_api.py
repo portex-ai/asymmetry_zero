@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -168,3 +168,76 @@ def test_eval_rejects_invalid_max_samples() -> None:
                     candidates=["openrouter:openai/gpt-4o-mini"],
                     max_samples=0,
                 )
+
+
+def test_eval_threads_model_config_specs() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        bundle_dir = Path(tmpdir) / "bundle"
+        bundle_dir.mkdir()
+        (bundle_dir / "tasks.json").write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "prompts": [{"task_id": "task-1", "task_prompt": "Question 1", "reference_file": ""}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (bundle_dir / "answers.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "task_id": "task-1",
+                        "reference_file": "",
+                        "tools": [],
+                        "criteria": [
+                            {
+                                "id": "c1",
+                                "name": "Exact answer",
+                                "weight": 100,
+                                "grader_type": "ExactMatch",
+                                "semanticPrompt": "Answer 1",
+                            }
+                        ],
+                        "passThreshold": 100,
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        from portex_eval import eval as run_eval
+
+        mock_result = MagicMock(
+            run_id="run-1",
+            output_dir="/tmp/out",
+            eval_log="/tmp/out/log.eval",
+        )
+
+        with (
+            patch("portex_eval.benchmark.run.benchmark_one", return_value=mock_result) as mock_benchmark,
+            patch("portex_eval.reporting.tables.run"),
+            patch("portex_eval.rewards.extract_rewards", return_value=[]),
+            patch("portex_eval.rewards.write_rewards", return_value="/tmp/out/rl_rewards.json"),
+            patch(
+                "portex_eval.rewards.write_training_data",
+                return_value="/tmp/out/rl_training_data.json",
+            ),
+            patch("portex_eval.rewards.build_rewards", return_value=MagicMock(task_ids=[])),
+        ):
+            run_eval(
+                path=str(bundle_dir),
+                judges=[{"provider": "anthropic", "model": "claude-sonnet-4-5"}],
+                candidates=[
+                    {
+                        "provider": "vllm",
+                        "model": "Qwen/Qwen3-VL-4B-Instruct",
+                        "base_url": "https://modal.example/v1",
+                    }
+                ],
+            )
+
+        kwargs = mock_benchmark.call_args.kwargs
+        assert kwargs["candidate_spec"]["provider"] == "vllm"
+        assert kwargs["candidate_spec"]["base_url"] == "https://modal.example/v1"
+        assert kwargs["judge_specs"][0]["provider"] == "anthropic"

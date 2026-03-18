@@ -79,7 +79,7 @@ results = eval(
         "openrouter:google/gemini-2.5-flash",
     ],
     candidates=["openrouter:meta-llama/llama-3.3-70b-instruct"],
-    max-samples=4
+    max_samples=4,
 )
 ```
 
@@ -98,12 +98,37 @@ portex-eval run \
   --judge openrouter:openai/gpt-4o-mini \
   --judge openrouter:anthropic/claude-3.5-sonnet \
   --judge openrouter:google/gemini-2.5-flash \
-  --candidate openrouter:openai/gpt-5.2 \
-  --max-samples 4
+  --candidate-config '{"provider":"vllm","model":"Qwen/Qwen3-VL-4B-Instruct","base_url":"https://portex--qwen3-vl-4b-instruct-vllm-baseline-serve.modal.run/v1"}'
+
+# Mixed providers and a custom Modal/vLLM endpoint
+portex-eval run \
+  --bundle examples/simple_bundle \
+  --judge openrouter:openai/gpt-4o-mini \
+  --judge-config '{"provider":"anthropic","model":"claude-sonnet-4-5"}' \
+  --candidate-config '{"provider":"vllm","model":"Qwen/Qwen3-VL-4B-Instruct","base_url":"https://portex--qwen3-vl-4b-instruct-vllm-baseline-serve.modal.run/v1"}'
 
 # See all options
 portex-eval --help
 portex-eval run --help
+```
+
+Programmatic mixed-provider runs can also use config objects:
+
+```python
+results = eval(
+    path="./mybenchmark",
+    judges=[
+        "openrouter:google/gemini-2.5-flash",
+        {"provider": "anthropic", "model": "claude-sonnet-4-5"},
+    ],
+    candidates=[
+        {
+            "provider": "vllm",
+            "model": "Qwen/Qwen3-VL-4B-Instruct",
+            "base_url": "https://portex--qwen3-vl-4b-instruct-vllm-baseline-serve.modal.run/v1",
+        }
+    ],
+)
 ```
 
 ### Analyzing results

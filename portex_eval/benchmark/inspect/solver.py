@@ -2,29 +2,44 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Literal
 
-from inspect_ai.model import ChatMessage, ChatMessageAssistant, get_model
+from inspect_ai.model import (
+    ChatMessage,
+    ChatMessageAssistant,
+    ModelOutput,
+    ModelUsage,
+    get_model,
+)
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 
-from portex_eval.providers import Provider, get_provider
+from portex_eval.providers import ModelSpec, Provider, get_provider
 
 
-def _get_candidate_provider(model_string: str | None = None) -> Provider | None:
+def _candidate_provider_spec(model_spec: ModelSpec | None = None) -> ModelSpec | None:
+    if model_spec is not None:
+        return model_spec
+    config_text = os.environ.get("PORTEX_CANDIDATE_CONFIG")
+    if config_text:
+        return json.loads(config_text)
+    return os.environ.get("PORTEX_CANDIDATE_MODEL")
+
+
+def _get_candidate_provider(model_spec: ModelSpec | None = None) -> Provider | None:
     """Get a provider instance for the candidate model.
 
     Args:
-        model_string: Optional model string (e.g., 'openrouter:google/gemini-2.5-flash').
-            If not provided, tries PORTEX_CANDIDATE_MODEL env var.
+        model_spec: Optional model spec. If not provided, loads from env.
 
     Returns:
         Provider instance or None if no model string provided.
     """
-    model_string = model_string or os.environ.get("PORTEX_CANDIDATE_MODEL")
-    if not model_string:
+    model_spec = _candidate_provider_spec(model_spec)
+    if not model_spec:
         return None
-    return get_provider(model_string)
+    return get_provider(model_spec)
 
 
 def _extract_prompt_from_messages(messages: list[ChatMessage]) -> str:
@@ -39,6 +54,20 @@ def _extract_prompt_from_messages(messages: list[ChatMessage]) -> str:
                     if hasattr(item, "text"):
                         parts.append(item.text)
     return "\n".join(parts)
+
+
+def _provider_model_output(provider: Provider, text: str, usage: dict[str, int] | None) -> ModelOutput:
+    output = ModelOutput.from_content(
+        model=f"{provider.provider_id}:{provider.model_name}",
+        content=text,
+    )
+    if usage:
+        output.usage = ModelUsage(
+            input_tokens=int(usage.get("input_tokens", 0) or 0),
+            output_tokens=int(usage.get("output_tokens", 0) or 0),
+            total_tokens=int(usage.get("total_tokens", 0) or 0),
+        )
+    return output
 
 
 @solver
@@ -79,8 +108,8 @@ def candidate_generate(
         if use_provider and provider is not None:
             prompt = _extract_prompt_from_messages(state.messages)
             response = await provider.agenerate(prompt, **kwargs)
-            state.messages.append(ChatMessageAssistant(content=response.text))
-            state.output = type("Output", (), {"completion": response.text})()
+            state.output = _provider_model_output(provider, response.text, response.usage)
+            state.messages.append(state.output.message)
             return state
 
         model = get_model()
@@ -93,7 +122,7 @@ def candidate_generate(
 
 @solver
 def provider_generate(
-    model_string: str,
+    model_spec: ModelSpec,
     max_tokens: int | None = None,
     temperature: float | None = None,
     **kwargs: Any,
@@ -105,7 +134,7 @@ def provider_generate(
     with exponential backoff.
 
     Args:
-        model_string: Model string (e.g., 'openrouter:google/gemini-2.5-flash').
+        model_spec: Model string or config object.
         max_tokens: Maximum tokens to generate.
         temperature: Sampling temperature.
         **kwargs: Additional arguments passed to provider.generate().
@@ -113,7 +142,7 @@ def provider_generate(
     Returns:
         Solver function.
     """
-    provider = get_provider(model_string)
+    provider = get_provider(model_spec)
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         prompt = _extract_prompt_from_messages(state.messages)
@@ -123,8 +152,8 @@ def provider_generate(
             temperature=temperature,
             **kwargs,
         )
-        state.messages.append(ChatMessageAssistant(content=response.text))
-        state.output = type("Output", (), {"completion": response.text})()
+        state.output = _provider_model_output(provider, response.text, response.usage)
+        state.messages.append(state.output.message)
         return state
 
     return solve

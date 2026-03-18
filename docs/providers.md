@@ -22,6 +22,21 @@ Examples:
 - `openrouter:anthropic/claude-3.5-sonnet`
 - `openrouter:google/gemini-2.5-flash`
 - `openrouter:meta-llama/llama-3.3-70b-instruct`
+- `openai:gpt-4o-mini`
+- `anthropic:claude-sonnet-4-5`
+- `vllm:Qwen/Qwen3-VL-4B-Instruct`
+- `custom:my-model`
+
+For custom endpoints or per-model auth, you can also pass a config object instead of a plain string:
+
+```python
+{
+    "provider": "vllm",
+    "model": "Qwen/Qwen3-VL-4B-Instruct",
+    "base_url": "https://portex--qwen3-vl-4b-instruct-vllm-baseline-serve.modal.run/v1",
+    "api_key_env": "MODAL_VLLM_API_KEY"
+}
+```
 
 ## Supported Providers
 
@@ -79,6 +94,44 @@ provider = get_provider(
     max_delay=60.0,          # Maximum retry delay (seconds)
     jitter=0.5,              # Randomness factor for delays
     timeout=120.0,           # Request timeout (seconds)
+)
+```
+
+### OpenAI
+
+OpenAI models can be addressed directly without going through OpenRouter:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+```
+
+```python
+provider = get_provider("openai:gpt-4o-mini")
+```
+
+### Anthropic
+
+Anthropic models are supported as first-class providers:
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+```python
+provider = get_provider("anthropic:claude-sonnet-4-5")
+```
+
+### OpenAI-Compatible Endpoints
+
+`vllm` and `custom` are aliases for the shared OpenAI-compatible backend. Use them for Modal, local vLLM, or other deployments that expose `/v1/chat/completions`.
+
+```python
+provider = get_provider(
+    {
+        "provider": "vllm",
+        "model": "Qwen/Qwen3-VL-4B-Instruct",
+        "base_url": "https://portex--qwen3-vl-4b-instruct-vllm-baseline-serve.modal.run/v1",
+    }
 )
 ```
 
@@ -142,6 +195,25 @@ results = eval(
 ```
 
 This diversity helps reduce bias from any single model family.
+
+You can also mix direct providers and custom endpoints in one run:
+
+```python
+results = eval(
+    path="./mybenchmark",
+    judges=[
+        "openrouter:google/gemini-2.5-flash",
+        {"provider": "anthropic", "model": "claude-sonnet-4-5"},
+    ],
+    candidates=[
+        {
+            "provider": "vllm",
+            "model": "Qwen/Qwen3-VL-4B-Instruct",
+            "base_url": "https://portex--qwen3-vl-4b-instruct-vllm-baseline-serve.modal.run/v1",
+        }
+    ],
+)
+```
 
 ## Rate Limiting
 
@@ -210,7 +282,7 @@ Register the provider:
 ```python
 from portex_eval.providers import register_provider
 
-register_provider("myprovider", lambda model_id, **kw: MyProvider(model_id, **kw))
+register_provider("myprovider", lambda config, **kw: MyProvider(config.model, **kw))
 
 # Now use it
 provider = get_provider("myprovider:my-model")

@@ -6,15 +6,35 @@ and running evaluations.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
 from portex_eval.api import create_benchmark
 from portex_eval.api import eval as run_eval
 from portex_eval.errors import PortexEvalError
+
+
+def _parse_model_config_arg(raw_value: str, flag_name: str) -> dict[str, Any]:
+    path = Path(raw_value).expanduser()
+    if path.is_file():
+        payload_text = path.read_text(encoding="utf-8")
+    else:
+        payload_text = raw_value
+
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError as exc:
+        raise PortexEvalError(
+            f"{flag_name} must be a JSON object or path to a JSON file: {exc.msg}"
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise PortexEvalError(f"{flag_name} must decode to a JSON object.")
+    return payload
 
 app = typer.Typer(
     name="portex-eval",
@@ -73,7 +93,14 @@ def run(
         typer.Option(
             "--judge",
             "-j",
-            help="Judge model identifier (e.g., openrouter/openai/gpt-4o). Can be repeated.",
+            help="Judge model identifier (e.g., openrouter:openai/gpt-4o). Can be repeated.",
+        ),
+    ] = None,
+    judge_configs: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--judge-config",
+            help="Judge model config as JSON or a path to a JSON file. Can be repeated.",
         ),
     ] = None,
     candidates: Annotated[
@@ -81,7 +108,14 @@ def run(
         typer.Option(
             "--candidate",
             "-c",
-            help="Candidate model identifier (e.g., openrouter/openai/gpt-4o). Can be repeated.",
+            help="Candidate model identifier (e.g., openrouter:openai/gpt-4o). Can be repeated.",
+        ),
+    ] = None,
+    candidate_configs: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--candidate-config",
+            help="Candidate model config as JSON or a path to a JSON file. Can be repeated.",
         ),
     ] = None,
     output_dir: Annotated[
@@ -145,19 +179,30 @@ def run(
         typer.secho("Error: --bundle is required", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
 
-    if not judges:
+    judge_specs: list[str | dict[str, Any]] = list(judges or [])
+    judge_specs.extend(
+        _parse_model_config_arg(raw_value, "--judge-config") for raw_value in (judge_configs or [])
+    )
+
+    candidate_specs: list[str | dict[str, Any]] = list(candidates or [])
+    candidate_specs.extend(
+        _parse_model_config_arg(raw_value, "--candidate-config")
+        for raw_value in (candidate_configs or [])
+    )
+
+    if not judge_specs:
         typer.secho("Error: At least one --judge is required", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
 
-    if not candidates:
+    if not candidate_specs:
         typer.secho("Error: At least one --candidate is required", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
 
     try:
         result = run_eval(
             path=str(bundle),
-            judges=list(judges),
-            candidates=list(candidates),
+            judges=judge_specs,
+            candidates=candidate_specs,
             output_dir=str(output_dir) if output_dir else None,
             task_spec=task_spec,
             max_samples=max_samples,

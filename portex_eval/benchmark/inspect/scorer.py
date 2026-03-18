@@ -25,7 +25,7 @@ from inspect_ai.scorer import (
 )
 from inspect_ai.solver import TaskState
 
-from portex_eval.providers import Provider, get_provider
+from portex_eval.providers import ModelSpec, Provider, get_provider
 
 logger = logging.getLogger(__name__)
 
@@ -149,14 +149,15 @@ def _resolve_judge_models(
     return []
 
 
-def _resolve_judge_providers(model_strings: list[str]) -> dict[str, Provider]:
+def _resolve_judge_providers(model_specs: list[ModelSpec]) -> dict[str, Provider]:
     """Resolve judge model strings to Provider instances.
 
     For portex_eval provider mode with rate limit handling.
     """
     providers: dict[str, Provider] = {}
-    for model_string in model_strings:
-        providers[model_string] = get_provider(model_string)
+    for model_spec in model_specs:
+        provider = get_provider(model_spec)
+        providers[f"{provider.provider_id}:{provider.model_name}"] = provider
     return providers
 
 
@@ -238,7 +239,7 @@ async def _grade_with_provider(
 
 @scorer(metrics=[accuracy(), stderr()])
 def portex_scorer(
-    model: list[str] | str | None = None,
+    model: list[ModelSpec] | ModelSpec | list[Model] | str | Model | None = None,
     answers_path: str | None = None,
     use_provider: bool = False,
 ) -> Scorer:
@@ -251,8 +252,8 @@ def portex_scorer(
 
     Args:
         model: Judge model(s). Can be:
-            - A single model string (e.g., 'openrouter:google/gemini-2.5-flash')
-            - A list of model strings for multi-judge scoring
+            - A single model string or config object
+            - A list of model strings/config objects for multi-judge scoring
             - An Inspect Model instance (if use_provider=False)
         answers_path: Path to answers.json file.
         use_provider: If True, use portex_eval.providers for judge calls.
@@ -271,14 +272,13 @@ def portex_scorer(
     if use_provider:
         if model is None:
             raise ValueError("model is required when use_provider=True")
-        model_list = [model] if isinstance(model, str) else model
-        if not all(isinstance(m, str) for m in model_list):
+        model_list = [model] if not isinstance(model, list | tuple) else list(model)
+        if any(isinstance(item, Model) for item in model_list):
             raise ValueError(
-                "All models must be strings when use_provider=True "
-                "(e.g., 'openrouter:google/gemini-2.5-flash')"
+                "Inspect Model instances are not supported when use_provider=True. "
+                "Use provider model strings or config objects instead."
             )
-        model_strings: list[str] = [m for m in model_list if isinstance(m, str)]
-        judge_providers = _resolve_judge_providers(model_strings)
+        judge_providers = _resolve_judge_providers(cast(list[ModelSpec], model_list))
     else:
         if isinstance(model, list | tuple):
             judge_models = _resolve_judge_models(model)
@@ -473,7 +473,7 @@ def portex_scorer(
 
 @scorer(metrics=[accuracy(), stderr()])
 def provider_scorer(
-    judges: list[str],
+    judges: list[ModelSpec],
     answers_path: str | None = None,
 ) -> Scorer:
     """Scorer that uses portex_eval providers for multi-judge grading.
@@ -483,8 +483,7 @@ def provider_scorer(
     rate limit handling with exponential backoff.
 
     Args:
-        judges: List of judge model strings (e.g., ['openrouter:google/gemini-2.5-flash']).
-            Multi-judge scoring uses majority voting.
+        judges: List of judge model strings or config objects.
         answers_path: Path to answers.json file.
 
     Returns:

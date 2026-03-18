@@ -13,8 +13,8 @@ from portex_eval import eval
 
 results = eval(
     path="./mybenchmark",       # Path to bundle directory
-    judges=["openrouter:..."],  # Judge model identifiers
-    candidates=["openrouter:..."],  # Candidate model identifiers
+    judges=["openrouter:..."],  # Judge model strings or config objects
+    candidates=["openrouter:..."],  # Candidate model strings or config objects
     output_dir=None,            # Optional output directory
     config=None,                # Optional Config instance
     task_spec=None,             # Optional task specification override
@@ -28,8 +28,8 @@ results = eval(
 |-----------|------|----------|-------------|
 | `path` | `str` | One of path/benchmark | Path to the bundle directory |
 | `benchmark` | `Benchmark` | One of path/benchmark | Benchmark instance from `create_benchmark()` |
-| `judges` | `list[str]` | Yes | List of judge model identifiers |
-| `candidates` | `list[str]` | Yes | List of candidate model identifiers |
+| `judges` | `list[str | dict]` | Yes | List of judge model strings or config objects |
+| `candidates` | `list[str | dict]` | Yes | List of candidate model strings or config objects |
 | `output_dir` | `str` | No | Output directory. Defaults to `./eval_runs/<run_id>/` |
 | `config` | `Config` | No | Runtime configuration. Defaults to `Config.from_env()` |
 | `task_spec` | `str` | No | Task specification override |
@@ -56,6 +56,25 @@ results = eval(
         "openrouter:google/gemini-2.5-flash",
     ],
     candidates=["openrouter:meta-llama/llama-3.3-70b-instruct"],
+)
+```
+
+Custom endpoints can be supplied per model:
+
+```python
+results = eval(
+    path="./examples/simple_bundle",
+    judges=[
+        "openrouter:google/gemini-2.5-flash",
+        {"provider": "anthropic", "model": "claude-sonnet-4-5"},
+    ],
+    candidates=[
+        {
+            "provider": "vllm",
+            "model": "Qwen/Qwen3-VL-4B-Instruct",
+            "base_url": "https://portex--qwen3-vl-4b-instruct-vllm-baseline-serve.modal.run/v1",
+        }
+    ],
 )
 ```
 

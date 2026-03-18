@@ -31,7 +31,7 @@ def run_inspect_eval(
     log_dir: str,
     report_path: str,
     data_dir: str,
-    model: str,
+    model: str | None,
     task_spec: str,
     max_samples: int | None = None,
     logprobs: bool = False,
@@ -50,11 +50,11 @@ def run_inspect_eval(
         "inspect",
         "eval",
         task_spec,
-        "--model",
-        model,
         "--log-dir",
         log_dir,
     ]
+    if model:
+        cmd.extend(["--model", model])
     if max_samples is not None:
         cmd.extend(["--max-samples", str(max_samples)])
     if logprobs or top_logprobs is not None:
@@ -89,7 +89,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--model",
-        default=os.getenv("MODEL", "openrouter/google/gemini-2.5-flash"),
+        default=os.getenv("MODEL"),
     )
     parser.add_argument(
         "--task-spec",

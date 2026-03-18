@@ -4,11 +4,12 @@ import json
 import os
 import shutil
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from portex_eval.benchmark.inspect.main import run_inspect_eval
+from portex_eval.providers import ModelConfig, ModelSpec, model_config_from_spec, model_config_to_dict
 
 # Local defaults (simplified from portex_eval.config)
 DEFAULT_EVAL_BUNDLES_ROOT = os.getenv("PORTEX_EVAL_BUNDLES_ROOT", "./bundles")
@@ -64,11 +65,52 @@ def _pick_eval_log(report: dict[str, Any], log_dir: str) -> str:
 
 
 def _resolve_task_spec(task_spec: str | None) -> str:
-    if task_spec is None:
-        return f"{Path(__file__).resolve().parent / 'inspect' / 'eval.py'}@portex_qa_eval"
-    if task_spec != "portex_qa_eval":
+    return _resolve_task_spec_for_mode(task_spec, use_providers=False)
+
+
+def _resolve_task_spec_for_mode(task_spec: str | None, *, use_providers: bool) -> str:
+    task_name = task_spec or (
+        "portex_qa_eval_with_providers" if use_providers else "portex_qa_eval"
+    )
+    if task_name not in {"portex_qa_eval", "portex_qa_eval_with_providers"}:
         raise ValueError(f"Task spec {task_spec} not supported")
-    return f"{Path(__file__).resolve().parent / 'inspect' / 'eval.py'}@{task_spec}"
+    return f"{Path(__file__).resolve().parent / 'inspect' / 'eval.py'}@{task_name}"
+
+
+def _spec_needs_provider_runtime(config: ModelConfig) -> bool:
+    return (
+        config.provider != "openrouter"
+        or config.base_url is not None
+        or config.api_key is not None
+        or config.api_key_env is not None
+        or bool(config.headers)
+        or bool(config.options)
+    )
+
+
+def _use_provider_runtime(candidate: ModelConfig, judges: list[ModelConfig]) -> bool:
+    return _spec_needs_provider_runtime(candidate) or any(
+        _spec_needs_provider_runtime(judge) for judge in judges
+    )
+
+
+def _inspect_model_name(config: ModelConfig) -> str:
+    if config.provider == "openrouter":
+        return f"openrouter/{config.model}"
+    if config.provider in {"openai", "openai_compatible", "openai-compatible", "vllm", "custom"}:
+        return f"openai/{config.model}"
+    if config.provider == "anthropic":
+        return f"anthropic/{config.model}"
+    return f"openai/{config.model}"
+
+
+def _provider_env(candidate: ModelConfig, judges: list[ModelConfig]) -> dict[str, str]:
+    return {
+        "PORTEX_CANDIDATE_MODEL": candidate.model_string,
+        "PORTEX_CANDIDATE_CONFIG": json.dumps(model_config_to_dict(candidate)),
+        "PORTEX_JUDGE_MODELS": ",".join(judge.model_string for judge in judges),
+        "PORTEX_JUDGE_CONFIGS": json.dumps([model_config_to_dict(judge) for judge in judges]),
+    }
 
 
 def benchmark_one(
@@ -76,7 +118,8 @@ def benchmark_one(
     bundle_dir: str,
     index_root: str | None = None,
     eval_runs_root: str | None = None,
-    model_endpoint: str,
+    candidate_spec: ModelSpec,
+    judge_specs: list[ModelSpec],
     task_spec: str | None = None,
     max_samples: int | None = None,
     logprobs: bool = False,
@@ -89,7 +132,8 @@ def benchmark_one(
         bundle_dir: Path to the bundle directory containing tasks.json and answers.json
         index_root: Root directory for bundles (used for relative path calculation)
         eval_runs_root: Root directory for eval run outputs
-        model_endpoint: Model identifier (e.g., "openrouter/google/gemini-2.5-flash")
+        candidate_spec: Candidate model spec.
+        judge_specs: Judge model specs.
         task_spec: Task specification (defaults to portex_qa_eval)
         max_samples: Maximum number of dataset samples to run in parallel.
         logprobs: Whether to request completion logprobs from the candidate model.
@@ -109,8 +153,11 @@ def benchmark_one(
     if not os.path.isdir(bundle_dir):
         raise ValueError(f"Bundle directory not found: {bundle_dir}")
 
-    task_spec_resolved = _resolve_task_spec(task_spec)
-    run_id = datetime.utcnow().isoformat(timespec="seconds").replace(":", "-") + "Z"
+    candidate_config = model_config_from_spec(candidate_spec)
+    judge_configs = [model_config_from_spec(spec) for spec in judge_specs]
+    use_providers = _use_provider_runtime(candidate_config, judge_configs)
+    task_spec_resolved = _resolve_task_spec_for_mode(task_spec, use_providers=use_providers)
+    run_id = datetime.now(timezone.utc).isoformat(timespec="seconds").replace(":", "-")
 
     try:
         rel = str(Path(bundle_dir).resolve().relative_to(Path(index_root).resolve()))
@@ -130,15 +177,21 @@ def benchmark_one(
     os.makedirs(reports_dir, exist_ok=True)
 
     report_path = os.path.join(output_dir, "manifest.json")
+    extra_env = (
+        _provider_env(candidate_config, judge_configs)
+        if use_providers
+        else {"PORTEX_JUDGE_MODELS": ",".join(_inspect_model_name(j) for j in judge_configs)}
+    )
     report = run_inspect_eval(
         log_dir=logs_dir,
         report_path=report_path,
         data_dir=bundle_dir,
-        model=model_endpoint,
+        model=None if use_providers else _inspect_model_name(candidate_config),
         task_spec=task_spec_resolved,
         max_samples=max_samples,
         logprobs=logprobs,
         top_logprobs=top_logprobs,
+        extra_env=extra_env,
     )
 
     eval_log = _pick_eval_log(report, logs_dir)
@@ -147,12 +200,17 @@ def benchmark_one(
 
     manifest_payload: dict[str, Any] = {
         "run_id": run_id,
-        "created_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace(
+            "+00:00", "Z"
+        ),
         "index_root": index_root,
         "eval_runs_root": eval_runs_root,
         "bundle_dir": bundle_dir,
         "bundle_relpath": rel,
-        "model_endpoint": model_endpoint,
+        "candidate_spec": model_config_to_dict(candidate_config),
+        "judge_specs": [model_config_to_dict(model) for model in judge_configs],
+        "model_endpoint": _inspect_model_name(candidate_config),
+        "use_providers": use_providers,
         "task_spec": task_spec_resolved,
         "eval_log": eval_log,
         "report_path": report_path,
@@ -189,7 +247,8 @@ def benchmark_one(
 
 def benchmark_matrix(
     bundle_dirs: list[str],
-    models: list[str],
+    models: list[ModelSpec],
+    judge_specs: list[ModelSpec],
     index_root: str | None = None,
     eval_runs_root: str | None = None,
     task_spec: str | None = None,
@@ -202,7 +261,8 @@ def benchmark_matrix(
 
     Args:
         bundle_dirs: List of bundle directory paths
-        models: List of model endpoints
+        models: List of candidate model specs
+        judge_specs: Shared judge model specs
         index_root: Root directory for bundles
         eval_runs_root: Root directory for eval run outputs
         task_spec: Task specification
@@ -222,7 +282,8 @@ def benchmark_matrix(
                     bundle_dir=bundle_dir,
                     index_root=index_root,
                     eval_runs_root=eval_runs_root,
-                    model_endpoint=model,
+                    candidate_spec=model,
+                    judge_specs=judge_specs,
                     task_spec=task_spec,
                     max_samples=max_samples,
                     logprobs=logprobs,

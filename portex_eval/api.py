@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import uuid
 from pathlib import Path
 from typing import Any
 
 from portex_eval.config import Config
 from portex_eval.errors import PortexEvalError
-from portex_eval.providers import get_provider, parse_model_string
+from portex_eval.providers import (
+    ModelConfig,
+    ModelSpec,
+    get_supported_providers,
+    model_config_from_spec,
+    model_config_to_dict,
+)
 from portex_eval.types import Benchmark, EvalResults, ReportPaths, Rewards
 
 ALLOWED_GRADER_TYPES = {"ExactMatch", "llm-judge"}
@@ -111,8 +118,8 @@ def eval(
     *,
     path: str | None = None,
     benchmark: Benchmark | None = None,
-    judges: list[str],
-    candidates: list[str],
+    judges: list[ModelSpec],
+    candidates: list[ModelSpec],
     output_dir: str | None = None,
     config: Config | None = None,
     task_spec: str | None = None,
@@ -126,8 +133,8 @@ def eval(
     Args:
         path: Path to the bundle directory (mutually exclusive with benchmark).
         benchmark: Benchmark instance (mutually exclusive with path).
-        judges: List of judge model identifiers.
-        candidates: List of candidate model identifiers.
+        judges: List of judge model specs.
+        candidates: List of candidate model specs.
         output_dir: Output directory for run results. Defaults to ./eval_runs/<run_id>/.
         config: Runtime configuration. Defaults to Config.from_env().
         task_spec: Task specification override.
@@ -170,15 +177,12 @@ def eval(
     task_ids = _validate_tasks_json(tasks_path)
     _validate_answers_json(answers_path, task_ids)
 
-    judge_models = [_validate_model_string(m, "judges") for m in judges]
-    candidate_models = [_validate_model_string(m, "candidates") for m in candidates]
+    judge_models = [_validate_model_spec(m, "judges") for m in judges]
+    candidate_models = [_validate_model_spec(m, "candidates") for m in candidates]
 
     cfg = config or Config.from_env()
     runs_root = Path(output_dir).expanduser().resolve() if output_dir else cfg.ensure_runs_dir()
     runs_root.mkdir(parents=True, exist_ok=True)
-
-    previous_judge_models = os.environ.get("PORTEX_JUDGE_MODELS")
-    os.environ["PORTEX_JUDGE_MODELS"] = ",".join(judge_models)
 
     eval_logs: list[str] = []
     last_run_id = ""
@@ -188,61 +192,54 @@ def eval(
     last_rewards_path = ""
     last_training_data_path = ""
 
-    try:
-        for candidate in candidate_models:
-            result = benchmark_one(
-                bundle_dir=str(bundle_path),
-                index_root=cfg.bundles_dir,
-                eval_runs_root=str(runs_root),
-                model_endpoint=candidate,
-                task_spec=task_spec,
-                max_samples=max_samples,
-                logprobs=logprobs,
-                top_logprobs=top_logprobs,
-                overwrite=overwrite,
-            )
-            eval_logs.append(result.eval_log)
-            last_run_id = result.run_id
-            last_output_dir = result.output_dir
+    for candidate in candidate_models:
+        result = benchmark_one(
+            bundle_dir=str(bundle_path),
+            index_root=cfg.bundles_dir,
+            eval_runs_root=str(runs_root),
+            candidate_spec=model_config_to_dict(candidate),
+            judge_specs=[model_config_to_dict(model) for model in judge_models],
+            task_spec=task_spec,
+            max_samples=max_samples,
+            logprobs=logprobs,
+            top_logprobs=top_logprobs,
+            overwrite=overwrite,
+        )
+        eval_logs.append(result.eval_log)
+        last_run_id = result.run_id
+        last_output_dir = result.output_dir
 
-            reports_dir = Path(result.output_dir) / "reports"
-            from portex_eval.reporting import tables as report_tables
+        reports_dir = Path(result.output_dir) / "reports"
+        from portex_eval.reporting import tables as report_tables
 
-            report_tables.run(result.eval_log, str(reports_dir))
-            report_paths = ReportPaths(
-                eval_level=str(reports_dir / "eval_level.csv"),
-                task_level=str(reports_dir / "task_level.csv"),
-                criterion_level=str(reports_dir / "criterion_level.csv"),
-                judgement_level=str(reports_dir / "judgement_level.csv"),
-            )
+        report_tables.run(result.eval_log, str(reports_dir))
+        report_paths = ReportPaths(
+            eval_level=str(reports_dir / "eval_level.csv"),
+            task_level=str(reports_dir / "task_level.csv"),
+            criterion_level=str(reports_dir / "criterion_level.csv"),
+            judgement_level=str(reports_dir / "judgement_level.csv"),
+        )
 
-            from portex_eval.rewards import (
-                build_rewards,
-                extract_rewards,
-                write_rewards,
-                write_training_data,
-            )
+        from portex_eval.rewards import (
+            build_rewards,
+            extract_rewards,
+            write_rewards,
+            write_training_data,
+        )
 
-            task_scores = extract_rewards(report_paths.task_level)
-            rewards_path = write_rewards(
-                task_scores, str(Path(result.output_dir) / "rl_rewards.json")
-            )
-            training_data_path = write_training_data(
-                task_scores,
-                result.eval_log,
-                str(Path(result.output_dir) / "rl_training_data.json"),
-            )
-            rewards_payload = build_rewards(task_scores)
+        task_scores = extract_rewards(report_paths.task_level)
+        rewards_path = write_rewards(task_scores, str(Path(result.output_dir) / "rl_rewards.json"))
+        training_data_path = write_training_data(
+            task_scores,
+            result.eval_log,
+            str(Path(result.output_dir) / "rl_training_data.json"),
+        )
+        rewards_payload = build_rewards(task_scores)
 
-            last_reports = report_paths
-            last_rewards = rewards_payload
-            last_rewards_path = rewards_path
-            last_training_data_path = training_data_path
-    finally:
-        if previous_judge_models is None:
-            os.environ.pop("PORTEX_JUDGE_MODELS", None)
-        else:
-            os.environ["PORTEX_JUDGE_MODELS"] = previous_judge_models
+        last_reports = report_paths
+        last_rewards = rewards_payload
+        last_rewards_path = rewards_path
+        last_training_data_path = training_data_path
 
     if not last_run_id:
         raise PortexEvalError("No evaluation results produced")
@@ -275,20 +272,21 @@ def _write_json(path: Path, payload: Any) -> None:
         json.dump(payload, handle, indent=2)
 
 
-def _validate_model_string(model_string: str, field: str) -> str:
+def _validate_model_spec(model_spec: ModelSpec, field: str) -> ModelConfig:
     try:
-        provider_id, model_id = parse_model_string(model_string)
+        config = model_config_from_spec(model_spec)
     except ValueError as exc:
-        raise PortexEvalError(f"Invalid {field} model string '{model_string}': {exc}") from exc
+        raise PortexEvalError(f"Invalid {field} model spec '{model_spec}': {exc}") from exc
 
-    try:
-        get_provider(model_string)
-    except ValueError as exc:
-        raise PortexEvalError(f"Unsupported {field} model '{model_string}': {exc}") from exc
+    supported = get_supported_providers()
+    if config.provider not in supported:
+        supported_text = ", ".join(sorted(supported))
+        raise PortexEvalError(
+            f"Unsupported {field} model provider '{config.provider}'. "
+            f"Supported providers: {supported_text}"
+        )
 
-    if provider_id == "openrouter":
-        return f"openrouter/{model_id}"
-    return f"{provider_id}/{model_id}"
+    return config
 
 
 def _validate_tasks_json(tasks_path: Path) -> set[str]:
