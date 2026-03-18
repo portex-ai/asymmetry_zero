@@ -20,6 +20,19 @@ from portex_eval.errors import PortexEvalError
 
 
 def _parse_model_config_arg(raw_value: str, flag_name: str) -> dict[str, Any]:
+    """
+    Parse a model configuration from a JSON string or a path to a JSON file.
+    
+    Parameters:
+        raw_value (str): JSON payload text or a filesystem path (string) pointing to a JSON file.
+        flag_name (str): CLI flag name used in error messages when parsing fails.
+    
+    Returns:
+        dict[str, Any]: The decoded JSON object representing the model configuration.
+    
+    Raises:
+        PortexEvalError: If the payload is not valid JSON or does not decode to a JSON object.
+    """
     path = Path(raw_value).expanduser()
     if path.is_file():
         payload_text = path.read_text(encoding="utf-8")
@@ -50,6 +63,17 @@ def _parse_model_specs(
     *,
     config_flag_name: str,
 ) -> list[str | dict[str, Any]]:
+    """
+    Combine model identifiers and parsed model configuration entries into a single specifications list.
+    
+    Parameters:
+        models (list[str] | None): Optional list of model identifier strings.
+        model_configs (list[str] | None): Optional list of model configuration payloads; each item is either a JSON string or a filesystem path to a JSON file and will be parsed into a dict.
+        config_flag_name (str): Flag name used in error messages when parsing model configuration entries.
+    
+    Returns:
+        list[str | dict[str, Any]]: A list where each entry is either a model identifier string or a parsed model configuration dictionary.
+    """
     specs: list[str | dict[str, Any]] = list(models or [])
     specs.extend(
         _parse_model_config_arg(raw_value, config_flag_name) for raw_value in (model_configs or [])
@@ -270,7 +294,16 @@ def agent_create(
         ),
     ] = False,
 ) -> None:
-    """Convert a Portex bundle into Harbor task directories."""
+    """
+    Convert a Portex bundle into a set of Harbor task directories.
+    
+    Validates that both bundle and output_dir are provided, then generates Harbor task directories and prints the task root path, datasets directory, and number of tasks created on success.
+    
+    Parameters:
+        bundle (Path | None): Path to the Portex bundle directory (required).
+        output_dir (Path | None): Output directory where Harbor tasks will be created (required).
+        overwrite (bool): If true, allow overwriting an existing output directory.
+    """
     if bundle is None:
         typer.secho("Error: --bundle is required", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
@@ -359,7 +392,21 @@ def agent_run(
         ),
     ] = False,
 ) -> None:
-    """Run a Harbor-backed agent evaluation."""
+    """
+    Run a Harbor-backed agent evaluation from a Harbor task root.
+    
+    Parses judge specifications from provided `--judge` and `--judge-config` values, forwards any additional CLI arguments from the Typer context to the evaluation, invokes the agent evaluation, and prints run metadata (run ID, output directory, datasets dir, jobs dir). If present, prints structured report paths and counts for reports, rewards, and training data. On error, prints a descriptive message and exits with code 1.
+    
+    Parameters:
+        ctx: Typer context whose `args` are forwarded to the underlying evaluation as extra arguments.
+        task_root: Path to the generated Harbor task root (required).
+        judges: One or more judge model identifiers (repeatable).
+        judge_configs: One or more judge model configs as JSON strings or paths to JSON files (repeatable); these are merged with `judges` to form judge specifications.
+        output_dir: Optional run output directory; defaults to the task root when not provided.
+        n_concurrent: Optional maximum number of Harbor tasks to run concurrently (minimum 1).
+        env: Optional Harbor environment profile name.
+        overwrite: If true, allow overwriting an existing output directory.
+    """
     if task_root is None:
         typer.secho("Error: --tasks is required", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)

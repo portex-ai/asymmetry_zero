@@ -256,7 +256,27 @@ def _normalize_tasks(data: Any, source_path: Path) -> list[dict[str, Any]]:
 
 
 def _normalize_answers(data: Any, source_path: Path) -> list[dict[str, Any]]:
-    """Normalize answers data to a list of answer records."""
+    """
+    Normalize raw answers.json content into a list of validated answer records.
+    
+    Parameters:
+        data (Any): Parsed JSON content of answers.json; expected to be a list of answer objects.
+        source_path (Path): Path to the source answers.json file, used in error messages.
+    
+    Returns:
+        list[dict[str, Any]]: A list of normalized answer records. Each record contains:
+            - "task_id" (str): validated non-empty task identifier.
+            - "answer" (str|None): the original answer text or None if not provided.
+            - "reference_file" (str): reference filename or empty string.
+            - "tools" (list): list of tools (may be empty).
+            - "criteria" (list[dict]): validated and normalized criteria entries.
+            - "passThreshold" (int|float): pass threshold (defaults to 100).
+    
+    Raises:
+        PortexEvalError: If the top-level data is not a list, an entry is not an object,
+                         a task_id is missing or empty, an answer is present but not a string,
+                         criteria is not a list, or any criterion fails validation.
+    """
     if not isinstance(data, list):
         raise PortexEvalError(
             f"answers.json must be a list, got {type(data).__name__}: {source_path}"
@@ -327,7 +347,11 @@ def _write_tasks_v2(path: Path, tasks: list[dict[str, Any]]) -> None:
 
 
 def _write_answers(path: Path, answers: list[dict[str, Any]]) -> None:
-    """Write answers with criteria."""
+    """
+    Write answers to a JSON file omitting raw answer text.
+    
+    Each entry in `answers` is serialized with the "answer" key removed; the resulting list is written to `path` as JSON.
+    """
     serialized_answers = []
     for answer in answers:
         serialized_answers.append({k: v for k, v in answer.items() if k != "answer"})
@@ -335,7 +359,15 @@ def _write_answers(path: Path, answers: list[dict[str, Any]]) -> None:
 
 
 def _copy_refs(input_path: Path, output_dir: Path) -> None:
-    """Copy reference files from input to output bundle."""
+    """
+    Copy visible files and directories from the input bundle's refs directory into the output bundle's refs directory.
+    
+    If the input refs directory does not exist, the function does nothing. Items whose names start with "." are skipped. Directory contents are merged into existing destination directories; file metadata is preserved when copied.
+    
+    Parameters:
+        input_path (Path): Path to the input bundle root containing a `refs/` subdirectory.
+        output_dir (Path): Path to the output bundle root where `refs/` contents will be copied.
+    """
     input_refs = input_path / "refs"
     output_refs = output_dir / "refs"
 
@@ -358,7 +390,22 @@ def _induce_criteria_for_answers(
     task_prompts: dict[str, str],
     provider: Provider,
 ) -> list[dict[str, Any]]:
-    """Induce criteria for all answers that don't have them."""
+    """
+    Induces evaluation criteria for answers that lack them using the provided LLM provider.
+    
+    For each answer in `answers` that has an empty or missing `criteria` list, generates criteria by calling the given `provider` with the corresponding task prompt and answer text, and returns a new list where those answers have a populated `criteria` field. Answers that already include criteria are returned unchanged.
+    
+    Parameters:
+        answers (list[dict]): List of answer records; each record must include `task_id` and may include `answer` and `criteria`.
+        task_prompts (dict[str, str]): Mapping from task_id to the task prompt text used when inducing criteria.
+        provider (Provider): LLM provider used to generate criteria.
+    
+    Returns:
+        list[dict]: New list of answer records where missing criteria have been added. Each added `criteria` value is a non-empty list of criterion dictionaries.
+    
+    Raises:
+        PortexEvalError: If an answer requires induced criteria but its `answer` field is missing, not a string, or blank.
+    """
     updated_answers: list[dict[str, Any]] = []
 
     for answer in answers:
@@ -388,6 +435,19 @@ def _ensure_answers_have_criteria(
     answers: list[dict[str, Any]],
     source_path: Path,
 ) -> list[dict[str, Any]]:
+    """
+    Verify that every answer entry contains a non-empty list under the "criteria" key.
+    
+    Parameters:
+        answers (list[dict[str, Any]]): List of answer records to validate. Each record is expected to include a "criteria" key with a non-empty list.
+        source_path (Path): Path to the source answers file; included in error messages for traceability.
+    
+    Returns:
+        list[dict[str, Any]]: The same list passed in, returned unchanged when validation succeeds.
+    
+    Raises:
+        PortexEvalError: If any answer's "criteria" is missing, not a list, or an empty list. The error message includes the offending entry index and the source_path.
+    """
     for idx, answer in enumerate(answers):
         criteria = answer.get("criteria", [])
         if not isinstance(criteria, list) or not criteria:
@@ -402,7 +462,25 @@ def _induce_criteria_single(
     task_prompt: str,
     provider: Provider,
 ) -> list[dict[str, Any]]:
-    """Induce criteria for a single answer using LLM."""
+    """
+    Induces evaluation criteria for a single answer using the configured LLM provider.
+    
+    Formats a prompt from the task prompt and answer, sends it to the provider, parses the LLM response
+    into a list of criterion objects, ensures each criterion has a `grader_type` (defaulting to
+    "llm-judge" when absent), and normalizes criterion weights to sum to 100.
+    
+    Parameters:
+        answer (str): The answer text for which criteria should be induced.
+        task_prompt (str): The original task prompt to provide context to the LLM.
+    
+    Returns:
+        list[dict]: A list of criterion dictionaries. Each criterion includes keys such as `id`,
+        `name`, `semanticPrompt`/`description` (at least one), `weight` (numeric; weights sum to 100),
+        and `grader_type`.
+    
+    Raises:
+        PortexEvalError: If LLM generation or response parsing fails.
+    """
     prompt = CRITERIA_INDUCTION_PROMPT.format(
         task_prompt=task_prompt,
         answer=answer,
@@ -417,7 +495,19 @@ def _induce_criteria_single(
 
 
 def _parse_criteria_response(response_text: str) -> list[dict[str, Any]]:
-    """Parse LLM response to extract criteria JSON."""
+    """
+    Extract a JSON array of criteria from an LLM response text.
+    
+    Parses the response (including JSON inside fenced code blocks) and returns the decoded list of criterion objects.
+    
+    Returns:
+        criteria (list[dict]): A list of criterion objects parsed from the response.
+    
+    Raises:
+        PortexEvalError: If the JSON cannot be parsed, if the top-level value is not a list,
+                         if any item is not an object, or if any criterion is missing a required
+                         field ('id', 'name', 'weight', 'semanticPrompt').
+    """
     text = response_text.strip()
 
     json_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
@@ -464,6 +554,20 @@ def _normalize_criterion(
     context: str,
     source_path: Path,
 ) -> dict[str, Any]:
+    """
+    Validate and normalize a single criterion object.
+    
+    Parameters:
+        criterion (Any): The raw criterion value to validate and normalize.
+        context (str): Human-readable context used in error messages (e.g., field path).
+        source_path (Path): Source file path included in error messages for traceability.
+    
+    Returns:
+        dict[str, Any]: A normalized criterion dictionary with a validated `grader_type` (defaults to "llm-judge" when absent).
+    
+    Raises:
+        PortexEvalError: If `criterion` is not an object; if `id` is missing or empty; if `weight` is not numeric; if `grader_type` is not one of the allowed values; or if none of `semanticPrompt`, `description`, or `name` is a non-empty string.
+    """
     if not isinstance(criterion, dict):
         raise PortexEvalError(f"{context} must be an object: {source_path}")
 
@@ -494,7 +598,18 @@ def _normalize_criterion(
 
 
 def _normalize_criteria_weights(criteria: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Normalize criteria weights to sum to exactly 100."""
+    """
+    Normalize a list of criterion dictionaries so their weights sum to exactly 100.
+    
+    Parameters:
+        criteria (list[dict[str, Any]]): List of criterion objects; each may include a numeric `weight` field.
+    
+    Returns:
+        list[dict[str, Any]]: A new list of criterion objects with numeric `weight` values adjusted so their sum is exactly 100.
+            - If all input weights sum to 0, weights are distributed evenly and any remainder is given to earlier items.
+            - Otherwise, weights are scaled proportionally and rounded; the final item's weight is adjusted to ensure the total equals 100.
+            - All other fields on each criterion are preserved.
+    """
     if not criteria:
         return criteria
 

@@ -72,6 +72,15 @@ def _usage_for_models(model_usage: dict[str, Any], models: Iterable[str]) -> dic
 
 
 def _judge_models_from_metadata(metadata: dict[str, Any]) -> list[str]:
+    """
+    Extracts unique judge model names from evaluation metadata.
+    
+    Parameters:
+        metadata (dict[str, Any]): Evaluation metadata containing a "criteria" sequence, where each criterion may include a "judges" sequence of objects with a "model" key.
+    
+    Returns:
+        list[str]: Unique judge model names in the order they first appear; an empty list if no judge models are present.
+    """
     judges: list[str] = []
     for criterion in metadata.get("criteria", []) or []:
         for judge in criterion.get("judges", []) or []:
@@ -82,6 +91,17 @@ def _judge_models_from_metadata(metadata: dict[str, Any]) -> list[str]:
 
 
 def _score_prefix(tasks_df: pd.DataFrame) -> str:
+    """
+    Determine the score field prefix to use from task dataframe column names.
+    
+    Scans tasks_df for columns matching the pattern "score_<prefix>_metadata" and returns a chosen prefix. Prefers "score_portex_scorer", then "score_provider_scorer", otherwise returns the first discovered prefix; if none found, returns "score_portex_scorer".
+    
+    Parameters:
+        tasks_df (pd.DataFrame): DataFrame of task rows that may contain score-related columns named like "score_<prefix>_metadata".
+    
+    Returns:
+        str: The selected score prefix (including the "score_" prefix), e.g. "score_portex_scorer".
+    """
     prefixes = sorted(
         {
             column[: -len("_metadata")]
@@ -99,10 +119,31 @@ def _score_prefix(tasks_df: pd.DataFrame) -> str:
 
 
 def _score_field(row: pd.Series, prefix: str, suffix: str) -> Any:
+    """
+    Retrieve a value from a pandas row using a composite score field key.
+    
+    Parameters:
+        row (pd.Series): The row to read the value from.
+        prefix (str): The score prefix to use (e.g., "score_portex_scorer").
+        suffix (str): The field name suffix to append to the prefix (e.g., "metadata", "answer", "explanation").
+    
+    Returns:
+        Any: The value at the column "{prefix}_{suffix}" if present, otherwise `None`.
+    """
     return row.get(f"{prefix}_{suffix}")
 
 
 def _event_call_cost(call: Any) -> float | None:
+    """
+    Extracts a numeric cost value from a model event call structure.
+    
+    Parameters:
+        call (Any): The event call to inspect; may be None, a JSON string, or a dict. If a dict, the function looks for
+            a "usage" object with a "cost" field under either the "response" or "request" keys.
+    
+    Returns:
+        float | None: The cost as a float if present and convertible, `None` otherwise.
+    """
     if call is None:
         return None
     if isinstance(call, str):
@@ -176,6 +217,19 @@ def _filter_events(
     role: str,
     fallback_models: Iterable[str] | None = None,
 ) -> pd.DataFrame:
+    """
+    Return a DataFrame of rows filtered by the specified event role or, when role information is unavailable, by a fallback set of model names.
+    
+    Parameters:
+        events (pd.DataFrame): DataFrame containing model event rows; expected columns are `model_event_role` and/or `model_event_model`.
+        role (str): The role value to filter `model_event_role` by.
+        fallback_models (Iterable[str] | None): Iterable of model names to filter `model_event_model` by when `model_event_role` is not present or contains no values.
+    
+    Returns:
+        pd.DataFrame: Rows where `model_event_role == role` if that column exists and has any non-null values;
+        otherwise rows where `model_event_model` is in `fallback_models` if provided and the column exists;
+        otherwise an empty DataFrame with the same columns as `events`.
+    """
     if "model_event_role" in events.columns and events["model_event_role"].notna().any():
         return events[events["model_event_role"] == role]
     if fallback_models and "model_event_model" in events.columns:
@@ -202,6 +256,19 @@ def _matches_criterion(event_prompt: str | None, criterion_prompt: str | None) -
 def _build_eval_level(
     log_row: pd.Series, tasks_df: pd.DataFrame, events: pd.DataFrame
 ) -> pd.DataFrame:
+    """
+    Build a single-row evaluation-level DataFrame summarizing run, dataset, model, and aggregated usage.
+    
+    Processes task-level metadata and events to compute aggregate solver and scorer token usage and costs, summarize candidate and grader event latency/costs, and collect run- and dataset-level fields for the evaluation run.
+    
+    Parameters:
+        log_row (pd.Series): Row from the evaluations log containing run-level fields (e.g., run_id, model, dataset_location).
+        tasks_df (pd.DataFrame): DataFrame of task/sample rows for the run; used to extract per-task model usage and scoring metadata.
+        events (pd.DataFrame): Events DataFrame containing model event records used to filter and summarize candidate and grader activity.
+    
+    Returns:
+        pd.DataFrame: A one-row DataFrame with evaluation-level columns including run identifiers, dataset information, model configuration, aggregated solver and scorer usage (input/output/total tokens and cost), and summarized candidate/grader latency and cost.
+    """
     dataset_location = log_row.get("dataset_location")
     composite_id = _composite_id(dataset_location)
 
@@ -301,6 +368,17 @@ def _build_eval_level(
 def _build_task_level(
     log_row: pd.Series, tasks_df: pd.DataFrame, events: pd.DataFrame
 ) -> pd.DataFrame:
+    """
+    Builds a task-level DataFrame summarizing model runs, scores, and usage for each sample in tasks_df.
+    
+    Parameters:
+        log_row (pd.Series): A single run record (from evals_df) providing run-level fields such as `model` and `dataset_location`.
+        tasks_df (pd.DataFrame): The per-sample task dataframe (from samples_df) containing inputs, scores, and model usage columns.
+        events (pd.DataFrame): Event records (from _build_events_df) used to summarize candidate and grader latency/cost per sample.
+    
+    Returns:
+        pd.DataFrame: One row per sample/task containing run and sample identifiers, prompt and model response, scoring fields (grade, reasoning, PassThreshold, score), solver and scorer usage summaries (input/output/total tokens and cost), and latency estimates for candidate and grader events.
+    """
     dataset_location = log_row.get("dataset_location")
     composite_id = _composite_id(dataset_location)
     solver_model = log_row.get("model")
@@ -353,6 +431,22 @@ def _build_task_level(
 def _build_criterion_level(
     log_row: pd.Series, tasks_df: pd.DataFrame, events: pd.DataFrame
 ) -> pd.DataFrame:
+    """
+    Builds a criterion-level dataframe summarizing each criterion's grade and associated scorer usage for the given run.
+    
+    Parameters:
+        log_row (pd.Series): The eval run record (one row from the evals dataframe) containing at least `dataset_location`.
+        tasks_df (pd.DataFrame): Task-level dataframe containing samples, score metadata/predictions, and optional `model_usage`.
+        events (pd.DataFrame): Events dataframe containing model event records (must include `sample_id`, `model_event_criterion_prompt`, and fields used by filtering/summarization).
+    
+    Returns:
+        pd.DataFrame: A dataframe where each row represents a single criterion for a task in the run. Columns include:
+            - run_id, composite_id, log, created, model, task_id, prompt, model_response
+            - criterion_id, criterion_name, criterion_prompt, grader_type
+            - criteria_points, criteria_awarded, criteria_passed, criteria_grade
+            - scorer_usage_data_latency, scorer_usage_data_input_tokens, scorer_usage_data_output_tokens,
+              scorer_usage_data_total_tokens, scorer_usage_data_cost
+    """
     dataset_location = log_row.get("dataset_location")
     composite_id = _composite_id(dataset_location)
     score_prefix = _score_prefix(tasks_df)
@@ -409,6 +503,17 @@ def _build_criterion_level(
 def _build_judgement_level(
     log_row: pd.Series, tasks_df: pd.DataFrame, events: pd.DataFrame
 ) -> pd.DataFrame:
+    """
+    Builds a dataframe with one row per judge for each criterion in each task of a single evaluation run.
+    
+    Parameters:
+        log_row (pd.Series): A single evaluation run row (from the evals dataframe); used for run- and dataset-level fields.
+        tasks_df (pd.DataFrame): Task/sample rows for the run containing score metadata, model responses, and model usage.
+        events (pd.DataFrame): Event-level records (as produced by _build_events_df) used to locate judge call events and summarize latency/cost.
+    
+    Returns:
+        pd.DataFrame: A dataframe where each row represents a judge's judgement for a specific criterion on a task. Columns include run identifiers (run_id, composite_id, log, created), model/task context (model, task_id, prompt, model_response), criterion fields (criterion_id, criterion_name, criterion_prompt, grader_type, criteria_points), judge fields (judge_name, judge_awarded, judge_passed, judge_grade, judge_reasoning), and aggregated judge usage/summarized metrics (scorer_usage_data_latency, scorer_usage_data_input_tokens, scorer_usage_data_output_tokens, scorer_usage_data_total_tokens, scorer_usage_data_cost).
+    """
     dataset_location = log_row.get("dataset_location")
     composite_id = _composite_id(dataset_location)
     score_prefix = _score_prefix(tasks_df)

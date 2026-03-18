@@ -50,7 +50,20 @@ load_dotenv()
 
 # Lazy imports for optional subpackages to avoid hard dependencies
 def __getattr__(name: str) -> object:
-    """Lazy load optional subpackages."""
+    """
+    Provide lazy-loaded public symbols on module attribute access.
+    
+    When an attribute in the module's documented public surface is accessed, import and return the corresponding object from its source submodule.
+    
+    Parameters:
+        name (str): The attribute name being accessed on the module.
+    
+    Returns:
+        object: The resolved attribute from the appropriate submodule.
+    
+    Raises:
+        AttributeError: If the given name is not a supported lazy-load target.
+    """
     if name == "reports":
         from portex_eval import reporting as reports
 

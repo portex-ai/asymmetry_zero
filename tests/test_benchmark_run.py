@@ -11,6 +11,14 @@ from portex_eval.benchmark.run import benchmark_one
 
 
 def _write_bundle(bundle_dir: Path) -> None:
+    """
+    Write a minimal evaluation bundle into bundle_dir containing tasks.json and answers.json for tests.
+    
+    Parameters:
+        bundle_dir (Path): Directory where the bundle files will be written. Creates or overwrites
+            `tasks.json` (version 2 with one prompt for "task-1") and `answers.json` (one answer
+            entry with a single ExactMatch criterion and passThreshold 100).
+    """
     (bundle_dir / "tasks.json").write_text(
         json.dumps({"version": 2, "prompts": [{"task_id": "task-1", "task_prompt": "Q1"}]}),
         encoding="utf-8",
@@ -38,6 +46,11 @@ def _write_bundle(bundle_dir: Path) -> None:
 
 
 def test_benchmark_one_uses_provider_task_for_custom_endpoint() -> None:
+    """
+    Verify benchmark_one selects a provider-targeted task spec and propagates provider configurations via environment variables for a custom endpoint candidate.
+    
+    Creates a temporary bundle, patches internal eval calls, invokes benchmark_one with a candidate_spec that includes a provider and base_url and a judge_specs list, then asserts that the resulting task_spec ends with "@portex_qa_eval_with_providers", the model argument is None, and the extra_env contains "PORTEX_CANDIDATE_CONFIG" and "PORTEX_JUDGE_CONFIGS".
+    """
     with tempfile.TemporaryDirectory() as tmpdir:
         bundle_dir = Path(tmpdir) / "bundle"
         bundle_dir.mkdir()
@@ -98,6 +111,14 @@ def test_benchmark_one_threads_provider_logprob_env() -> None:
 
 
 def test_benchmark_one_keeps_inspect_path_for_plain_openrouter() -> None:
+    """
+    Verify that plain OpenRouter-style candidate and judge specs preserve the inspect task path and model/judge configuration.
+    
+    Calls benchmark_one with OpenRouter candidate and judge specs and asserts that:
+    - the dispatched task spec ends with "@portex_qa_eval",
+    - the model argument is set to the converted OpenRouter candidate string ("openrouter/openai/gpt-4o-mini"),
+    - the PORTEX_JUDGE_MODELS environment variable contains the OpenRouter judge string ("openrouter/openai/gpt-4o").
+    """
     with tempfile.TemporaryDirectory() as tmpdir:
         bundle_dir = Path(tmpdir) / "bundle"
         bundle_dir.mkdir()

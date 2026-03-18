@@ -54,15 +54,21 @@ class OpenRouterProvider(Provider):
         jitter: float = DEFAULT_JITTER,
         timeout: float = 120.0,
     ):
-        """Initialize the OpenRouter provider.
-
-        Args:
-            config: Resolved provider configuration.
-            max_retries: Maximum number of retries on rate limit.
-            base_delay: Base delay in seconds for exponential backoff.
-            max_delay: Maximum delay in seconds between retries.
-            jitter: Jitter factor (0-1) to add randomness to delays.
-            timeout: Request timeout in seconds.
+        """
+        Create and configure an OpenRouter provider instance, resolving API credentials and storing retry/backoff and timeout settings.
+        
+        The constructor resolves the API key from config.api_key if present, otherwise from the environment variable named by config.api_key_env (default "OPENROUTER_API_KEY"). It sets the provider API URL from config.base_url or the module default and stores retry/backoff parameters and request timeout. Raises ValueError if no API key can be found.
+        
+        Parameters:
+            config (ModelConfig): Provider configuration containing model, optional api_key, api_key_env, base_url, headers, and options.
+            max_retries (int): Maximum retry attempts for rate-limited requests.
+            base_delay (float): Base delay in seconds used for exponential backoff.
+            max_delay (float): Maximum delay in seconds to cap backoff.
+            jitter (float): Fractional jitter (0–1) applied to backoff delays to randomize retries.
+            timeout (float): Per-request timeout in seconds.
+        
+        Raises:
+            ValueError: If an API key is not provided via config.api_key or the configured environment variable.
         """
         self._config = config
         env_var = config.api_key_env or "OPENROUTER_API_KEY"
@@ -81,13 +87,36 @@ class OpenRouterProvider(Provider):
 
     @property
     def model_name(self) -> str:
+        """
+        The configured model identifier for this provider.
+        
+        Returns:
+            model_name (str): The model string from the provider configuration.
+        """
         return self._config.model
 
     @property
     def provider_id(self) -> str:
+        """
+        Return the canonical identifier for this provider.
+        
+        Returns:
+            provider_id (str): The provider identifier "openrouter".
+        """
         return "openrouter"
 
     def _normalize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """
+        Normalize messages so each message's `content` is converted into a list of standardized content items.
+        
+        Processes each message in `messages`: if `message["content"]` is a list, items that are dicts with `type == "text"` produce `{"type": "text", "text": <str>}` entries, and items with `type == "image"` produce `{"type": "image_url", "image_url": {"url": <data-or-http-url>, "detail": <detail>}}` where the `url` value is obtained via self._image_url(...) and `detail` defaults to `"auto"`. Non-dict content items and unsupported types are ignored. Messages whose `content` is not a list are preserved unchanged.
+        
+        Parameters:
+            messages (list[dict[str, Any]]): List of message objects to normalize. Each message is expected to be a mapping that may include a `content` key.
+        
+        Returns:
+            list[dict[str, Any]]: A new list of messages with `content` fields normalized as described above.
+        """
         normalized: list[dict[str, Any]] = []
         for message in messages:
             content = message.get("content")
@@ -121,6 +150,17 @@ class OpenRouterProvider(Provider):
         return normalized
 
     def _image_url(self, image_value: str) -> str:
+        """
+        Convert an image reference into a URL suitable for embedding.
+        
+        Accepts an HTTP(s) URL, an existing data URL, or a local filesystem path. If given a local path, the file is read, its MIME type is inferred, and the content is encoded as a base64 data URL.
+        
+        Parameters:
+            image_value (str): Image reference as an HTTP(s) URL, a data URL, or a local file path.
+        
+        Returns:
+            str: The original `image_value` if it already starts with `http://`, `https://`, or `data:`, otherwise a `data:` URL containing the file's inferred MIME type and base64-encoded content.
+        """
         if image_value.startswith(("http://", "https://", "data:")):
             return image_value
 
@@ -130,6 +170,12 @@ class OpenRouterProvider(Provider):
         return f"data:{mime_type};base64,{encoded}"
 
     def _get_headers(self) -> dict[str, str]:
+        """
+        Construct the default HTTP headers used for OpenRouter API requests.
+        
+        Returns:
+            headers (dict[str, str]): A mapping including Authorization (`Bearer <api_key>`), Content-Type (`application/json`), HTTP-Referer (`https://portex.ai`), X-Title (`portex-eval`), merged with any additional headers from the provider configuration.
+        """
         return {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
@@ -147,6 +193,19 @@ class OpenRouterProvider(Provider):
         temperature: float | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
+        """
+        Build the request payload for an OpenRouter API call.
+        
+        Parameters:
+            prompt (str): Fallback user prompt used when `messages` is not provided.
+            messages (list[dict[str, Any]] | None): If a list is provided, it will be normalized and used as the `messages` field; otherwise `prompt` is wrapped into a single user message.
+            max_tokens (int | None): Optional limit for the number of tokens to generate; included as `max_tokens` when provided.
+            temperature (float | None): Optional sampling temperature; included as `temperature` when provided.
+            **kwargs (Any): Additional payload fields that will be merged into the resulting payload, overriding values from `self._config.options` when keys conflict.
+        
+        Returns:
+            dict[str, Any]: A payload dict containing at least `model` and `messages`, with optional `max_tokens`, `temperature`, merged `self._config.options`, and any extra fields from `kwargs`.
+        """
         payload: dict[str, Any] = {
             "model": self._config.model,
             "messages": (
@@ -172,7 +231,21 @@ class OpenRouterProvider(Provider):
         return delay + jitter_amount
 
     def _parse_response(self, data: dict[str, Any]) -> Response:
-        """Parse OpenRouter API response."""
+        """
+        Extract the primary text and usage information from an OpenRouter API response.
+        
+        Parameters:
+            data (dict[str, Any]): Parsed JSON response from the OpenRouter API.
+        
+        Returns:
+            Response: A Response object containing:
+                - text: The content string from the first choice's message.
+                - usage: A normalized usage dictionary derived from the response.
+                - raw: The original response dictionary.
+        
+        Raises:
+            ValueError: If the response contains no choices.
+        """
         choices = data.get("choices", [])
         if not choices:
             raise ValueError("No choices in response")
@@ -185,7 +258,18 @@ class OpenRouterProvider(Provider):
         response: httpx.Response,
         attempt: int,
     ) -> float:
-        """Handle rate limit response, return delay to wait."""
+        """
+        Compute the backoff delay to use after receiving a rate-limited response.
+        
+        If the response includes a `Retry-After` header and it can be parsed as a number, that value is considered when computing the delay; otherwise an exponential backoff with jitter based on `attempt` is used.
+        
+        Parameters:
+            response (httpx.Response): The HTTP response that triggered the rate limit handling.
+            attempt (int): Zero-based retry attempt count used to compute exponential backoff.
+        
+        Returns:
+            float: Delay in seconds to wait before the next retry.
+        """
         retry_after = None
         if "Retry-After" in response.headers:
             try:
@@ -207,7 +291,21 @@ class OpenRouterProvider(Provider):
         temperature: float | None = None,
         **kwargs: Any,
     ) -> Response:
-        """Generate a completion synchronously with rate limit retry."""
+        """
+        Generate a text completion using the configured OpenRouter model, retrying on rate limits and transient request errors.
+        
+        Parameters:
+            prompt (str): The prompt or instruction to send to the model.
+            max_tokens (int | None): Optional maximum number of tokens to generate.
+            temperature (float | None): Sampling temperature; higher values produce more random output.
+            **kwargs: Additional options merged into the request payload.
+        
+        Returns:
+            Response: Parsed response containing the generated text, usage statistics, and raw API data.
+        
+        Raises:
+            RateLimitError: If the provider exhausts the configured retry attempts without a successful response.
+        """
         payload = self._build_payload(
             prompt, max_tokens=max_tokens, temperature=temperature, **kwargs
         )
@@ -260,7 +358,23 @@ class OpenRouterProvider(Provider):
         temperature: float | None = None,
         **kwargs: Any,
     ) -> Response:
-        """Generate a completion asynchronously with rate limit retry."""
+        """
+        Generate a model completion for the given prompt using the provider's configuration and retry on rate limits.
+        
+        The method builds a request payload from the prompt and optional generation parameters, sends it to the configured OpenRouter endpoint, and will retry with backoff when encountering rate-limit responses. Raises RateLimitError if the allowed retry attempts are exhausted.
+        
+        Parameters:
+            prompt (str): The text prompt to generate a completion for.
+            max_tokens (int | None): Maximum number of tokens to generate. If None, provider defaults apply.
+            temperature (float | None): Sampling temperature to control randomness. If None, provider defaults apply.
+            **kwargs: Additional options forwarded into the request payload (merged with provider config options).
+        
+        Returns:
+            Response: Parsed response object containing the generated text, normalized usage metrics, and raw API response data.
+        
+        Raises:
+            RateLimitError: If the provider exhausts the configured retry attempts due to rate limiting.
+        """
         payload = self._build_payload(
             prompt, max_tokens=max_tokens, temperature=temperature, **kwargs
         )
@@ -310,13 +424,14 @@ def create_openrouter_provider(
     config: ModelConfig,
     **kwargs: Any,
 ) -> OpenRouterProvider:
-    """Factory function to create an OpenRouter provider.
-
-    Args:
-        config: Resolved model config.
-        **kwargs: Additional arguments passed to OpenRouterProvider.
-
+    """
+    Create an OpenRouterProvider configured with the given ModelConfig.
+    
+    Parameters:
+        config: Resolved ModelConfig containing the model identifier and any provider-specific options (API key source, base URL, headers, etc.).
+        **kwargs: Additional keyword arguments forwarded to OpenRouterProvider constructor.
+    
     Returns:
-        An initialized OpenRouterProvider instance.
+        An OpenRouterProvider configured using the provided config and kwargs.
     """
     return OpenRouterProvider(config, **kwargs)

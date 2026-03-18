@@ -208,6 +208,11 @@ class TestAgentCommands:
         assert "Convert a Portex bundle into Harbor task directories" in result.output
 
     def test_agent_create_calls_api(self) -> None:
+        """
+        Verifies the `agent-create` CLI command calls the agent creation API and prints the created task root.
+        
+        Creates a temporary bundle directory, patches `create_agent_eval` to return a mock result, invokes the `agent-create` command with bundle and output paths, and asserts the command exits successfully, `create_agent_eval` was called once, and the output contains "Task root:".
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             bundle_dir = Path(tmpdir) / "bundle"
             bundle_dir.mkdir()
@@ -230,6 +235,11 @@ class TestAgentCommands:
             assert "Task root:" in result.output
 
     def test_agent_run_calls_api(self) -> None:
+        """
+        Verifies the agent-run CLI command forwards judge identifiers and trailing extra arguments to the agent runner API.
+        
+        Sets up a temporary agent task root, patches `run_agent_eval` to return a mock result, invokes the CLI with a `--judge` and a `--` separator followed by extra arguments, and asserts the command exits successfully and that `run_agent_eval` received the expected `judges` list and `extra_args`.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             task_root = Path(tmpdir) / "agent"
             task_root.mkdir()

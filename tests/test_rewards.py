@@ -228,6 +228,16 @@ def test_build_training_data_serializes_prompt_completion_and_logprobs(monkeypat
     )
 
     def _fake_read_eval_log(path: str, header_only: bool = False) -> SimpleNamespace:
+        """
+        Test helper that validates the eval log path and returns a predefined eval log.
+        
+        Parameters:
+            path (str): Expected path to the eval log; must be "/tmp/fake.eval".
+            header_only (bool): Must be False.
+        
+        Returns:
+            SimpleNamespace: The predefined `eval_log` object from the enclosing scope.
+        """
         assert path == "/tmp/fake.eval"
         assert header_only is False
         return eval_log

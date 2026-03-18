@@ -22,6 +22,16 @@ from portex_eval import (
 
 
 def _write_benchmark_json(path: Path) -> None:
+    """
+    Write a predefined benchmark JSON file containing two tasks and their grading criteria.
+    
+    The file will be created (or overwritten) at the given path using UTF-8 encoding. The payload includes two tasks:
+    - Task 1 with a single criterion using grader_type "ExactMatch".
+    - Task 2 with a single criterion using grader_type "llm-judge" and a semantic prompt.
+    
+    Parameters:
+        path (Path): Destination file path where the benchmark JSON will be written.
+    """
     payload = [
         {
             "task": "Question 1",

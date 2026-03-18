@@ -137,27 +137,29 @@ def eval(
     top_logprobs: int | None = None,
     overwrite: bool = False,
 ) -> EvalResults:
-    """Run an evaluation benchmark and return results.
-
+    """
+    Run a benchmark bundle or Benchmark instance and produce evaluation results.
+    
+    Validates inputs, executes the benchmark for each candidate model against the provided judge models, generates reports, builds rewards and training data, and returns aggregated run metadata and paths.
+    
     Args:
-        path: Path to the bundle directory (mutually exclusive with benchmark).
-        benchmark: Benchmark instance (mutually exclusive with path).
-        judges: List of judge model specs.
-        candidates: List of candidate model specs.
-        output_dir: Output directory for run results. Defaults to ./eval_runs/<run_id>/.
-        config: Runtime configuration. Defaults to Config.from_env().
-        task_spec: Task specification override.
-        max_samples: Maximum number of bundle samples to run in parallel.
-        logprobs: Whether to request completion logprobs from the candidate model.
-        top_logprobs: Number of top logprob alternatives to request per completion token.
-        overwrite: If True, allow overwriting existing output directories.
-            Defaults to False to prevent accidental data loss.
-
+        path (str | None): Path to a bundle directory. Mutually exclusive with `benchmark`.
+        benchmark (Benchmark | None): Benchmark instance. Mutually exclusive with `path`.
+        judges (list[ModelSpec]): One or more judge model specifications.
+        candidates (list[ModelSpec]): One or more candidate model specifications to evaluate.
+        output_dir (str | None): Root directory for run outputs. If omitted, the configured runs directory is used.
+        config (Config | None): Runtime configuration; if omitted Config.from_env() is used.
+        task_spec (str | None): Optional task specification override to pass to the evaluation run.
+        max_samples (int | None): Maximum number of bundle samples to evaluate; must be >= 1 when provided.
+        logprobs (bool): If True, request completion log probabilities from candidate models.
+        top_logprobs (int | None): Number of top logprob alternatives to request per token; must be >= 1 when provided.
+        overwrite (bool): If True, permit overwriting existing output directories.
+    
     Returns:
-        EvalResults with paths to logs, reports, and rewards.
-
+        EvalResults: Aggregated evaluation results, including evaluation logs, report paths, rewards payload, paths to rewards and training data, run id, and output directory.
+    
     Raises:
-        PortexEvalError: If validation fails or output directory exists without overwrite.
+        PortexEvalError: On invalid inputs (e.g., both or neither of `path`/`benchmark`, missing judges/candidates, invalid numeric parameters), missing bundle files, or when no evaluation results are produced.
     """
     from portex_eval.benchmark.run import benchmark_one
 
@@ -272,7 +274,21 @@ def create_agent_eval(
     output_dir: str,
     overwrite: bool = False,
 ) -> AgentEvalBundle:
-    """Generate Harbor task directories from a Portex bundle."""
+    """
+    Generate Harbor task directories from a Portex evaluation bundle.
+    
+    Parameters:
+        path (str | None): Filesystem path to a Portex bundle directory. Must be provided together with `benchmark` as exactly one of the two.
+        benchmark (Benchmark | None): In-memory Benchmark whose resolved path will be used as the bundle directory. Provide exactly one of `path` or `benchmark`.
+        output_dir (str): Destination directory where Harbor task directories will be created.
+        overwrite (bool): If true, allow replacing an existing `output_dir`; otherwise refuse to overwrite non-empty targets.
+    
+    Returns:
+        AgentEvalBundle: Metadata describing the created Harbor task bundle and its location.
+    
+    Raises:
+        PortexEvalError: If bundle resolution or validation of tasks/answers fails, or if bundle creation fails (propagates create_agent_eval_bundle errors as PortexEvalError).
+    """
     bundle_path = _resolve_bundle_path(path=path, benchmark=benchmark)
     task_ids = _validate_tasks_json(bundle_path / "tasks.json")
     _validate_answers_json(bundle_path / "answers.json", task_ids)
@@ -296,7 +312,23 @@ def agent_eval(
     extra_args: list[str] | None = None,
     overwrite: bool = False,
 ) -> AgentEvalResults:
-    """Run a Harbor-backed agent evaluation on generated Harbor tasks."""
+    """
+    Run a Harbor-backed agent evaluation on a set of Harbor task directories and return the run results.
+    
+    Parameters:
+        task_root (str): Path to the Harbor task root directory to run (will be resolved).
+        judges (list[ModelSpec] | None): Optional list of judge model specifications used by Harbor.
+        output_dir (str | None): Optional destination directory for the run; if provided and differs from task_root,
+            the task_root will be copied into this directory before running.
+        n_concurrent (int | None): Optional maximum number of concurrent agents Harbor should run.
+        env (str | None): Optional environment identifier passed to Harbor.
+        extra_args (list[str] | None): Optional list of extra CLI arguments forwarded to the Harbor run.
+        overwrite (bool): If True and output_dir exists, remove and replace its contents; if False and output_dir
+            exists and is non-empty, the call will raise an error.
+    
+    Returns:
+        AgentEvalResults: API-formatted results produced by the Harbor run.
+    """
     task_root_path = Path(task_root).expanduser().resolve()
     if not task_root_path.is_dir():
         raise PortexEvalError(f"Harbor task root not found: {task_root_path}")
@@ -333,6 +365,19 @@ def agent_eval(
 
 
 def _resolve_bundle_path(*, path: str | None, benchmark: Benchmark | None) -> Path:
+    """
+    Resolve the bundle directory from either a filesystem path or a Benchmark, requiring exactly one of the two.
+    
+    Parameters:
+        path (str | None): Filesystem path to the bundle directory. Provide this or `benchmark`, not both.
+        benchmark (Benchmark | None): Benchmark object whose .resolve_path() supplies the bundle directory. Provide this or `path`, not both.
+    
+    Returns:
+        Path: Absolute Path to an existing bundle directory.
+    
+    Raises:
+        PortexEvalError: If neither or both of `path` and `benchmark` are provided, if `path` is missing when required, or if the resolved path does not point to an existing directory.
+    """
     if (path is None) == (benchmark is None):
         raise PortexEvalError("Provide exactly one of path or benchmark")
     if benchmark is None:
@@ -347,6 +392,18 @@ def _resolve_bundle_path(*, path: str | None, benchmark: Benchmark | None) -> Pa
 
 
 def _load_json(path: Path) -> Any:
+    """
+    Load and parse JSON from the file at the given path.
+    
+    Parameters:
+        path (Path): Path to the JSON file to read.
+    
+    Returns:
+        Any: The parsed JSON content (Python objects produced by json.load).
+    
+    Raises:
+        PortexEvalError: If the file contains invalid JSON; the error message includes the line and column of the parse error.
+    """
     try:
         with path.open("r", encoding="utf-8") as handle:
             return json.load(handle)
@@ -357,12 +414,36 @@ def _load_json(path: Path) -> Any:
 
 
 def _write_json(path: Path, payload: Any) -> None:
+    """
+    Write a JSON-serializable payload to a file, creating parent directories if necessary.
+    
+    The payload is written using UTF-8 encoding and formatted with a 2-space indent. If the file exists it will be overwritten.
+    
+    Parameters:
+        path (Path): Destination file path for the JSON output.
+        payload (Any): JSON-serializable object to write.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
 
 
 def _validate_model_spec(model_spec: ModelSpec, field: str) -> ModelConfig:
+    """
+    Validate a model specification and return a normalized ModelConfig.
+    
+    Validates the provided ModelSpec by converting it to a ModelConfig and ensuring its provider is supported. The `field` value is used to contextualize error messages.
+    
+    Parameters:
+        model_spec (ModelSpec): The model specification to validate.
+        field (str): The name of the field (used in error messages) that supplied the spec.
+    
+    Returns:
+        ModelConfig: The normalized model configuration derived from the spec.
+    
+    Raises:
+        PortexEvalError: If the spec cannot be converted to a ModelConfig or if the config's provider is not supported.
+    """
     try:
         config = model_config_from_spec(model_spec)
     except ValueError as exc:
@@ -380,6 +461,14 @@ def _validate_model_spec(model_spec: ModelSpec, field: str) -> ModelConfig:
 
 
 def _validate_tasks_json(tasks_path: Path) -> set[str]:
+    """
+    Validate a tasks.json file and return the set of task IDs it contains.
+    
+    Validates that the file exists and that its top-level JSON value is either an object with a numeric optional `version` and a `prompts` list, or a list of prompt records. Each record must be an object containing a non-empty `task_id` string and a non-empty prompt field (`task_prompt`, `prompt`, or `task`). Raises PortexEvalError for missing files or any validation failure.
+    
+    Returns:
+        set[str]: The set of `task_id` values found in the file.
+    """
     if not tasks_path.is_file():
         raise PortexEvalError(f"tasks.json not found: {tasks_path}")
 
@@ -418,6 +507,18 @@ def _validate_tasks_json(tasks_path: Path) -> set[str]:
 
 
 def _validate_answers_json(answers_path: Path, task_ids: set[str]) -> None:
+    """
+    Validate an answers.json file: ensure it is a list of answer records, each references a known task_id, and each contains a valid criteria list.
+    
+    Parameters:
+        answers_path (Path): Path to the answers.json file to validate.
+        task_ids (set[str]): Set of valid task_id strings that entries are allowed to reference.
+    
+    Raises:
+        PortexEvalError: If the file is missing, the top-level JSON is not a list, an entry is not an object,
+                         an entry is missing or has an invalid `task_id`, an entry references an unknown
+                         `task_id`, or the entry's `criteria` fails validation.
+    """
     if not answers_path.is_file():
         raise PortexEvalError(f"answers.json not found: {answers_path}")
 
@@ -450,6 +551,24 @@ def _validate_criteria_list(
     context: str,
     source_path: Path,
 ) -> list[dict[str, Any]]:
+    """
+    Validate a criteria array and return the list of validated criterion dictionaries.
+    
+    Ensures `criteria` is a non-empty list and validates each element using
+    `_validate_criterion`. `context` is used to prefix error messages and
+    `source_path` is included in error diagnostics.
+    
+    Parameters:
+        criteria (Any): The value to validate as a criteria list (typically parsed from JSON).
+        context (str): Context string prepended to validation error messages to locate the offending item.
+        source_path (Path): Path to the source file for inclusion in error messages.
+    
+    Returns:
+        list[dict[str, Any]]: A list of validated criterion dictionaries, each as returned by `_validate_criterion`.
+    
+    Raises:
+        PortexEvalError: If `criteria` is not a non-empty list or any criterion is invalid.
+    """
     if not isinstance(criteria, list) or not criteria:
         raise PortexEvalError(f"{context} criteria must be a non-empty list: {source_path}")
 
@@ -471,6 +590,21 @@ def _validate_criterion(
     context: str,
     source_path: Path,
 ) -> dict[str, Any]:
+    """
+    Validate a single criterion object and return it if valid.
+    
+    Parameters:
+        criterion (Any): The candidate criterion to validate; must be a mapping containing required fields.
+        context (str): Contextual label used in error messages to identify the criterion's location.
+        source_path (Path): Path of the source file used in error messages.
+    
+    Returns:
+        dict[str, Any]: The original `criterion` mapping after successful validation.
+    
+    Raises:
+        PortexEvalError: If `criterion` is not an object, missing or empty `id`, has an invalid `grader_type`,
+                         a non-numeric `weight`, or lacks at least one of `semanticPrompt`, `description`, or `name`.
+    """
     if not isinstance(criterion, dict):
         raise PortexEvalError(f"{context} must be an object: {source_path}")
 

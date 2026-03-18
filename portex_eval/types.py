@@ -37,7 +37,12 @@ class Benchmark:
             raise ValueError("task_count must be non-negative")
 
     def resolve_path(self) -> Path:
-        """Return the absolute Path for the bundle."""
+        """
+        Resolve the bundle's path to an absolute Path.
+        
+        Returns:
+            Absolute Path pointing to the bundle directory.
+        """
         return Path(self.path).resolve()
 
 
@@ -50,6 +55,12 @@ class AgentEvalBundle:
     task_count: int
 
     def resolve_path(self) -> Path:
+        """
+        Resolve the absolute Path of the `path` field.
+        
+        Returns:
+            resolved_path (Path): The absolute filesystem Path corresponding to `self.path`.
+        """
         return Path(self.path).resolve()
 
 
@@ -85,7 +96,14 @@ class EvalResults:
     output_dir: str = ""
 
     def with_absolute_paths(self) -> EvalResults:
-        """Return a copy with absolute path fields resolved."""
+        """
+        Produce a copy of this EvalResults with all file- and directory-path fields converted to absolute paths.
+        
+        Reports (if present) have each subpath resolved to an absolute path; `logs` entries are resolved; `rewards_path`, `training_data_path`, and `output_dir` are resolved when non-empty. `run_id` and `rewards` are preserved unchanged.
+        
+        Returns:
+            EvalResults: A new EvalResults instance with absolute paths for the described fields; fields that were empty strings remain empty strings.
+        """
         reports = self.reports
         if reports is not None:
             reports = ReportPaths(
@@ -121,6 +139,14 @@ class AgentEvalResults:
     output_dir: str = ""
 
     def with_absolute_paths(self) -> AgentEvalResults:
+        """
+        Produce a copy of this AgentEvalResults with all path fields converted to absolute paths.
+        
+        The returned object preserves non-path fields (e.g., `run_id`, `rewards`) unchanged. For each string path field that is non-empty (`datasets_dir`, `jobs_dir`, `rewards_path`, `training_data_path`, `output_dir`) the value is replaced by its resolved absolute path; empty string fields remain empty. If `reports` is present, each report subpath (`eval_level`, `task_level`, `criterion_level`, `judgement_level`) is resolved to an absolute path in the returned `reports`.
+        
+        Returns:
+            AgentEvalResults: A new AgentEvalResults instance with absolute paths applied to all applicable fields.
+        """
         reports = self.reports
         if reports is not None:
             reports = ReportPaths(

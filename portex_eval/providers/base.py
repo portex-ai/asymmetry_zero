@@ -30,7 +30,12 @@ class ModelConfig:
 
     @property
     def model_string(self) -> str:
-        """Return the canonical ``provider:model`` string form."""
+        """
+        Canonical "provider:model" identifier for this ModelConfig.
+        
+        Returns:
+            model_string (str): The canonical "provider:model" string.
+        """
         return f"{self.provider}:{self.model}"
 
 
@@ -95,16 +100,17 @@ class Provider(ABC):
 
 
 def parse_model_string(model_string: str) -> tuple[str, str]:
-    """Parse a model string of format 'provider:model_id'.
-
-    Args:
-        model_string: A string like 'openrouter:google/gemini-2.5-flash'.
-
+    """
+    Parse a model string in the format "provider:model_id" and return the provider and model identifiers.
+    
+    Parameters:
+        model_string: Model string containing a provider and model separated by a single colon (e.g., "openrouter:google/gemini-2.5-flash").
+    
     Returns:
-        A tuple of (provider_id, model_id).
-
+        A tuple (provider_id, model_id) containing the provider identifier and the model identifier extracted from the input.
+    
     Raises:
-        ValueError: If the format is invalid.
+        ValueError: If the input does not contain a colon or either the provider or model part is empty.
     """
     if ":" not in model_string:
         raise ValueError(
@@ -120,7 +126,24 @@ def parse_model_string(model_string: str) -> tuple[str, str]:
 
 
 def model_config_from_spec(spec: ModelSpec) -> ModelConfig:
-    """Normalize a model spec into a ``ModelConfig``."""
+    """
+    Create a ModelConfig from a model specification.
+    
+    Parameters:
+        spec (ModelSpec): A model specification, which may be:
+            - a ModelConfig (returned unchanged),
+            - a string in the form "provider:model",
+            - or a dict containing at least `provider` and `model` (or `model_id`) and optional
+              keys: `base_url`, `api_key`, `api_key_env`, `headers`, `options`.
+    
+    Returns:
+        ModelConfig: A validated, immutable ModelConfig with `provider` and `model` trimmed and
+        `headers`/`options` copied into new dicts.
+    
+    Raises:
+        ValueError: If `spec` has an invalid form, is missing required fields, or contains fields
+        of incorrect types.
+    """
     if isinstance(spec, ModelConfig):
         return spec
 
@@ -171,7 +194,12 @@ def model_config_from_spec(spec: ModelSpec) -> ModelConfig:
 
 
 def model_config_to_dict(config: ModelConfig) -> dict[str, Any]:
-    """Serialize a ``ModelConfig`` into a JSON-safe dictionary."""
+    """
+    Convert a ModelConfig into a JSON-serializable dictionary.
+    
+    Returns:
+        A dictionary containing the keys "provider" and "model", and, when present on the config, the optional keys "base_url", "api_key", "api_key_env", "headers", and "options". The "headers" and "options" values are plain dicts suitable for JSON serialization.
+    """
     payload: dict[str, Any] = {
         "provider": config.provider,
         "model": config.model,
@@ -190,7 +218,17 @@ def model_config_to_dict(config: ModelConfig) -> dict[str, Any]:
 
 
 def normalize_usage_dict(usage: Any) -> dict[str, int] | None:
-    """Normalize provider usage payloads to input/output/total token keys."""
+    """
+    Normalize a provider's usage payload into a canonical dict with `input_tokens`, `output_tokens`, and `total_tokens`.
+    
+    Parameters:
+        usage (Any): Provider-reported usage payload (typically a dict) containing token counters such as
+            `prompt_tokens`, `completion_tokens`, `input_tokens`, `output_tokens`, or `total_tokens`.
+    
+    Returns:
+        dict[str, int] | None: A dict with integer values for `input_tokens`, `output_tokens`, and `total_tokens`,
+        or `None` if the provided `usage` is not a dict.
+    """
     if not isinstance(usage, dict):
         return None
 

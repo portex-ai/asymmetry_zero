@@ -65,10 +65,35 @@ def _pick_eval_log(report: dict[str, Any], log_dir: str) -> str:
 
 
 def _resolve_task_spec(task_spec: str | None) -> str:
+    """
+    Resolve a task specification for runs that do not use provider-based runtimes.
+    
+    Parameters:
+        task_spec (str | None): Optional task name to use; if provided, it becomes the task suffix.
+    
+    Returns:
+        A string containing the path "portex_eval/inspect/eval.py@{task_name}" where `{task_name}` is the provided task_spec or the default "portex_qa_eval".
+    """
     return _resolve_task_spec_for_mode(task_spec, use_providers=False)
 
 
 def _resolve_task_spec_for_mode(task_spec: str | None, *, use_providers: bool) -> str:
+    """
+    Resolve the task specification to a path pointing at the eval runner with an attached task name.
+    
+    If task_spec is provided, it is used as the task name; otherwise the default task name is chosen based on use_providers:
+    "portex_qa_eval_with_providers" when use_providers is True, otherwise "portex_qa_eval". The returned string is the filesystem path to the inspect/eval.py file in this package with an "@{task_name}" suffix.
+    
+    Parameters:
+        task_spec (str | None): Optional explicit task name to use instead of the default.
+        use_providers (bool): If True and task_spec is not provided, select the provider-aware task name.
+    
+    Returns:
+        str: The path to the inspect/eval.py file with an "@{task_name}" suffix.
+    
+    Raises:
+        ValueError: If the resolved task name is not one of "portex_qa_eval" or "portex_qa_eval_with_providers".
+    """
     task_name = task_spec or (
         "portex_qa_eval_with_providers" if use_providers else "portex_qa_eval"
     )
@@ -78,6 +103,12 @@ def _resolve_task_spec_for_mode(task_spec: str | None, *, use_providers: bool) -
 
 
 def _spec_needs_provider_runtime(config: ModelConfig) -> bool:
+    """
+    Determine whether a model configuration requires the provider/runtime environment.
+    
+    @param config: ModelConfig instance to evaluate for provider/runtime dependencies.
+    @returns: `true` if the configuration requires a provider/runtime (provider is not `"openrouter"`, or any of `base_url`, `api_key`, `api_key_env`, `headers`, or `options` is set), `false` otherwise.
+    """
     return (
         config.provider != "openrouter"
         or config.base_url is not None
@@ -89,12 +120,34 @@ def _spec_needs_provider_runtime(config: ModelConfig) -> bool:
 
 
 def _use_provider_runtime(candidate: ModelConfig, judges: list[ModelConfig]) -> bool:
+    """
+    Determine whether a provider-based runtime is required for the given candidate or any judge.
+    
+    Parameters:
+        candidate (ModelConfig): The candidate model configuration to check.
+        judges (list[ModelConfig]): A list of judge model configurations to check.
+    
+    Returns:
+        `true` if the candidate or any judge requires provider/runtime dependencies, `false` otherwise.
+    """
     return _spec_needs_provider_runtime(candidate) or any(
         _spec_needs_provider_runtime(judge) for judge in judges
     )
 
 
 def _inspect_model_name(config: ModelConfig) -> str:
+    """
+    Produce the runtime model name string for an inspect invocation based on the ModelConfig provider.
+    
+    Parameters:
+        config (ModelConfig): Configuration containing at least `provider` and `model` fields; `provider` controls the prefix and `model` provides the suffix.
+    
+    Returns:
+        str: A string in the form "<prefix>/<model>" where the prefix is chosen from the provider mapping:
+             - "openrouter" -> "openrouter"
+             - "anthropic" -> "anthropic"
+             - "openai", "openai_compatible", "openai-compatible", "vllm", "custom", or any other value -> "openai"
+    """
     if config.provider == "openrouter":
         return f"openrouter/{config.model}"
     if config.provider in {"openai", "openai_compatible", "openai-compatible", "vllm", "custom"}:
@@ -111,6 +164,24 @@ def _provider_env(
     logprobs: bool,
     top_logprobs: int | None,
 ) -> dict[str, str]:
+    """
+    Builds the environment variable mapping required to run an evaluation using provider runtimes.
+    
+    Parameters:
+        candidate (ModelConfig): Candidate model configuration used to populate `PORTEX_CANDIDATE_MODEL` and `PORTEX_CANDIDATE_CONFIG`.
+        judges (list[ModelConfig]): Judge model configurations used to populate `PORTEX_JUDGE_MODELS` and `PORTEX_JUDGE_CONFIGS`.
+        logprobs (bool): If true, sets `PORTEX_LOGPROBS` to "true" to enable logprob logging.
+        top_logprobs (int | None): If provided, sets `PORTEX_TOP_LOGPROBS` to the given integer value.
+    
+    Returns:
+        dict[str, str]: A mapping of environment variable names to string values. Keys include:
+            - `PORTEX_CANDIDATE_MODEL`: candidate.model_string
+            - `PORTEX_CANDIDATE_CONFIG`: JSON string of the candidate config
+            - `PORTEX_JUDGE_MODELS`: comma-separated judge model_string values
+            - `PORTEX_JUDGE_CONFIGS`: JSON string array of judge configs
+            - `PORTEX_LOGPROBS` (optional): "true" when logprobs is enabled
+            - `PORTEX_TOP_LOGPROBS` (optional): string value of top_logprobs when provided
+    """
     env = {
         "PORTEX_CANDIDATE_MODEL": candidate.model_string,
         "PORTEX_CANDIDATE_CONFIG": json.dumps(model_config_to_dict(candidate)),
@@ -137,26 +208,28 @@ def benchmark_one(
     top_logprobs: int | None = None,
     overwrite: bool = False,
 ) -> BenchmarkResult:
-    """Run a single benchmark evaluation.
-
-    Args:
-        bundle_dir: Path to the bundle directory containing tasks.json and answers.json
-        index_root: Root directory for bundles (used for relative path calculation)
-        eval_runs_root: Root directory for eval run outputs
-        candidate_spec: Candidate model spec.
-        judge_specs: Judge model specs.
-        task_spec: Task specification (defaults to portex_qa_eval)
-        max_samples: Maximum number of dataset samples to run in parallel.
-        logprobs: Whether to request completion logprobs from the candidate model.
-        top_logprobs: Number of top logprob alternatives to request per completion token.
-        overwrite: If True, allow overwriting existing output directories.
-            Defaults to False to prevent accidental data loss.
-
+    """
+    Run a single benchmark evaluation for a candidate model against one or more judges using the data in a bundle.
+    
+    This creates an output directory under eval_runs_root (organized by bundle relative path and a timestamped run id), invokes the inspect evaluation, collects the chosen evaluation log, and writes a manifest/report describing the run.
+    
+    Parameters:
+        bundle_dir (str): Path to the bundle directory containing task data (e.g., tasks.json, answers.json).
+        index_root (str | None): Root directory used to compute the bundle's relative path inside eval_runs_root. Defaults to DEFAULT_EVAL_BUNDLES_ROOT when None.
+        eval_runs_root (str | None): Root directory where evaluation run outputs will be created. Defaults to DEFAULT_EVAL_RUNS_ROOT when None.
+        candidate_spec (ModelSpec): Specification for the candidate model to evaluate.
+        judge_specs (list[ModelSpec]): Specifications for judge models used to evaluate candidate outputs.
+        task_spec (str | None): Task spec name or path suffix to run; resolved to the appropriate inspect task for provider vs non-provider mode when None.
+        max_samples (int | None): Maximum number of dataset samples to run (limits dataset size); when None the full dataset is used.
+        logprobs (bool): If True, request token-level logprobs from the candidate model.
+        top_logprobs (int | None): If set, request this many top logprob alternatives per completion token.
+        overwrite (bool): If True, allow overwriting an existing output directory. Defaults to False.
+    
     Returns:
-        BenchmarkResult with run details
-
+        BenchmarkResult: Object containing run_id, output_dir, eval_log, and report_path.
+    
     Raises:
-        ValueError: If output directory already exists and overwrite is False.
+        ValueError: If bundle_dir does not exist, or if the computed output directory already exists and overwrite is False.
     """
     index_root = index_root or DEFAULT_EVAL_BUNDLES_ROOT
     eval_runs_root = eval_runs_root or DEFAULT_EVAL_RUNS_ROOT

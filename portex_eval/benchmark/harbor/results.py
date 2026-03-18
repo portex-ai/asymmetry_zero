@@ -12,10 +12,30 @@ from portex_eval.rewards import build_rewards, write_rewards
 
 
 def _detail_files(jobs_dir: str) -> list[Path]:
+    """
+    Locate all files named 'portex_detail.json' under the given jobs directory.
+    
+    Parameters:
+        jobs_dir (str): Root directory to search recursively for detail files.
+    
+    Returns:
+        list[Path]: Sorted list of Path objects for each matching 'portex_detail.json'.
+    """
     return sorted(Path(jobs_dir).rglob("portex_detail.json"))
 
 
 def _load_details(jobs_dir: str) -> list[dict[str, Any]]:
+    """
+    Load JSON detail payloads from all discovered portex_detail.json files under jobs_dir.
+    
+    Each JSON object found is returned as a dict and is augmented with a "_detail_path" key containing the path to the source file.
+    
+    Parameters:
+        jobs_dir (str): Root directory to search for detail files.
+    
+    Returns:
+        list[dict[str, Any]]: A list of detail dictionaries loaded from JSON files, each including a "_detail_path" string.
+    """
     details: list[dict[str, Any]] = []
     for path in _detail_files(jobs_dir):
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -26,6 +46,17 @@ def _load_details(jobs_dir: str) -> list[dict[str, Any]]:
 
 
 def _task_scores(details: list[dict[str, Any]]) -> list[tuple[str, float]]:
+    """
+    Extract task IDs and their numeric total scores from a list of detail dictionaries.
+    
+    Each returned tuple contains (task_id, score). Entries lacking a non-empty string `task_id` are omitted; `total_score_raw` is converted to a `float` and defaults to 0.0 when missing or empty.
+    
+    Parameters:
+        details (list[dict[str, Any]]): Detail dictionaries expected to include a `"task_id"` string and an optional `"total_score_raw"` value.
+    
+    Returns:
+        list[tuple[str, float]]: A list of `(task_id, score)` tuples where `score` is a float.
+    """
     scores: list[tuple[str, float]] = []
     for detail in details:
         task_id = detail.get("task_id")
@@ -41,6 +72,24 @@ def _harbor_training_data(
     jobs_dir: str,
     agent_model: str | None,
 ) -> dict[str, Any]:
+    """
+    Builds a Harbor-formatted RL training data payload from evaluation details and task scores.
+    
+    Parameters:
+        details (list[dict[str, Any]]): List of detail dictionaries loaded from portex_detail.json files; each dict may include keys like "task_id", "question", "reference_file", and "submission".
+        task_scores (list[tuple[str, float]]): Iterable of (task_id, score) pairs used to populate each record's `reward`.
+        jobs_dir (str): Path to the jobs directory used as the payload `source.jobs_dir`.
+        agent_model (str | None): Model identifier to include in each record's `model` field; may be None.
+    
+    Returns:
+        dict[str, Any]: A dictionary with the following top-level keys:
+            - "format": the payload format string ("portex-rl-training-data").
+            - "version": integer format version.
+            - "source": mapping including resolved "jobs_dir".
+            - "records": list of per-task records, each containing fields such as
+              "task_id", "sample_id", "epoch", "model", "reward", "reference_file",
+              "prompt_messages", "prompt_text", and "completion".
+    """
     reward_by_task = {task_id: score for task_id, score in task_scores}
     records: list[dict[str, Any]] = []
     for detail in details:
@@ -101,6 +150,26 @@ def write_harbor_artifacts(
     agent_model: str | None,
     harbor_args: list[str],
 ) -> tuple[tuple[str, str, str, str], Any, str, str]:
+    """
+    Assemble Harbor evaluation artifacts (CSV reports, RL rewards, and training data) from job detail files and write them to the output directory.
+    
+    Loads Harbor detail JSONs from jobs_dir, computes per-task scores and an overall headline score, builds CSV reports at reports/, writes an RL rewards JSON and a Harbor-formatted RL training data JSON, and returns paths and payloads for the generated artifacts.
+    
+    Parameters:
+        jobs_dir (str): Directory containing Harbor job subdirectories with portex_detail.json files.
+        output_dir (str): Root directory where reports and artifact files will be written.
+        run_id (str): Identifier for this evaluation run (used in report rows and timestamps).
+        datasets_dir (str): Location string for the dataset (recorded in eval metadata).
+        agent_model (str | None): Model identifier to record in report rows; may be None.
+        harbor_args (list[str]): Argument list used to invoke the model/scorer; serialized into eval metadata.
+    
+    Returns:
+        tuple:
+            - tuple[str, str, str, str]: Paths to the generated CSV files in the order (eval_level, task_level, criterion_level, judgement_level).
+            - Any: The rewards payload object produced for RL (as returned by build_rewards).
+            - str: Path to the written RL rewards JSON file.
+            - str: Path to the written RL training data JSON file.
+    """
     output_root = Path(output_dir)
     reports_dir = output_root / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)

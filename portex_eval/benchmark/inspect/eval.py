@@ -43,7 +43,16 @@ DATA_DIR = os.getenv("PORTEX_EVAL_DATA_DIR", "./bundle")
 
 
 def _parse_env_list(env_var: str, default: list[str]) -> list[str]:
-    """Parse a comma-separated environment variable into a list."""
+    """
+    Parse an environment variable containing comma-separated values into a list of trimmed strings.
+    
+    Parameters:
+    	env_var (str): Name of the environment variable to read.
+    	default (list[str]): Value to return if the environment variable is not set or empty.
+    
+    Returns:
+    	list[str]: List of non-empty, trimmed values from the environment variable, or `default` if the variable is not set or empty.
+    """
     value = os.getenv(env_var)
     if not value:
         return default
@@ -51,6 +60,15 @@ def _parse_env_list(env_var: str, default: list[str]) -> list[str]:
 
 
 def _parse_env_json(env_var: str) -> Any | None:
+    """
+    Parse a JSON value from an environment variable.
+    
+    Parameters:
+        env_var (str): Name of the environment variable to read.
+    
+    Returns:
+        Any | None: The Python value obtained by JSON-decoding the environment variable's contents, or `None` if the environment variable is not set or is empty.
+    """
     value = os.getenv(env_var)
     if not value:
         return None
@@ -58,6 +76,14 @@ def _parse_env_json(env_var: str) -> Any | None:
 
 
 def _candidate_provider_spec() -> ModelSpec | None:
+    """
+    Resolve the candidate model specification for provider-based evaluation from environment variables.
+    
+    Checks PORTEX_CANDIDATE_CONFIG for a JSON configuration and returns it if present; otherwise falls back to PORTEX_CANDIDATE_MODEL. 
+    
+    Returns:
+        ModelSpec | None: The candidate model specification parsed from `PORTEX_CANDIDATE_CONFIG`, the string value of `PORTEX_CANDIDATE_MODEL` if set, or `None` if neither is provided.
+    """
     config = _parse_env_json("PORTEX_CANDIDATE_CONFIG")
     if config is not None:
         return config
@@ -65,6 +91,17 @@ def _candidate_provider_spec() -> ModelSpec | None:
 
 
 def _judge_provider_specs(default: list[str]) -> list[ModelSpec]:
+    """
+    Resolve the judge model specifications for provider-based evaluation.
+    
+    If the environment variable PORTEX_JUDGE_CONFIGS contains a non-empty JSON list, that list is returned. Otherwise, the function reads PORTEX_JUDGE_MODELS and returns its parsed entries; if PORTEX_JUDGE_MODELS is unset, the provided `default` is returned.
+    
+    Parameters:
+        default (list[str]): Fallback list of judge model identifiers used when PORTEX_JUDGE_MODELS is not set.
+    
+    Returns:
+        list[ModelSpec]: A list of judge model specifications to use for scoring.
+    """
     configs = _parse_env_json("PORTEX_JUDGE_CONFIGS")
     if isinstance(configs, list) and configs:
         return configs
@@ -72,6 +109,16 @@ def _judge_provider_specs(default: list[str]) -> list[ModelSpec]:
 
 
 def _candidate_generation_options() -> dict[str, Any]:
+    """
+    Builds generation options for candidate providers from environment variables.
+    
+    Reads PORTEX_LOGPROBS and PORTEX_TOP_LOGPROBS. If PORTEX_LOGPROBS is set to "1", "true", or "yes" (case-insensitive), the returned dict includes "logprobs": True. If PORTEX_TOP_LOGPROBS is set, it is parsed as an integer and added as "top_logprobs"; setting "top_logprobs" also enables "logprobs".
+    
+    Returns:
+        options (dict[str, Any]): Dictionary with optional keys:
+            - "logprobs" (bool): True when log probabilities are requested.
+            - "top_logprobs" (int): Number of top logprob buckets when specified.
+    """
     options: dict[str, Any] = {}
     if os.getenv("PORTEX_LOGPROBS", "").lower() in {"1", "true", "yes"}:
         options["logprobs"] = True
@@ -110,18 +157,16 @@ def portex_qa_eval() -> Task:
 
 @task
 def portex_qa_eval_with_providers() -> Task:
-    """Portex QA evaluation task using provider abstraction.
-
-    This task uses portex_eval.providers for both candidate generation
-    and judge scoring, which includes rate limit handling with exponential
-    backoff. Configure via environment variables:
-
-    - PORTEX_EVAL_DATA_DIR: Path to bundle directory (default: ./bundle)
-    - PORTEX_CANDIDATE_MODEL: Candidate model string (e.g., openrouter:google/gemini-2.5-flash)
-    - PORTEX_JUDGE_MODELS: Comma-separated list of judge model strings
-
+    """
+    Portex QA evaluation task configured to use provider-based candidate generation and judge scoring.
+    
+    Builds and returns a Task that uses portex_eval.providers for generation (with optional logprobs/top_logprobs) and provider-based scoring. The candidate model must be provided via environment configuration (e.g., PORTEX_CANDIDATE_CONFIG or PORTEX_CANDIDATE_MODEL); judge models are resolved from provider configs or PORTEX_JUDGE_MODELS with sensible defaults.
+    
     Returns:
-        Inspect Task instance.
+        Task: An Inspect Task configured to generate candidate answers with providers and score them using provider-based judges.
+    
+    Raises:
+        ValueError: If no candidate model specification is available from the environment (candidate model is required for provider mode).
     """
     data_dir = os.getenv("PORTEX_EVAL_DATA_DIR", DATA_DIR) or DATA_DIR
     candidate_model = _candidate_provider_spec()

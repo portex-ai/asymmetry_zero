@@ -63,17 +63,43 @@ def extract_rewards(task_level_csv: str) -> list[tuple[str, float]]:
 
 
 def build_rewards(task_scores: list[tuple[str, float]]) -> Rewards:
-    """Build reward payload from task score tuples."""
+    """
+    Constructs a Rewards object from a sequence of (task_id, score) pairs.
+    
+    Parameters:
+        task_scores (list[tuple[str, float]]): List of (task_id, score) tuples where `task_id` is a task identifier and `score` is its numeric reward.
+    
+    Returns:
+        Rewards: A Rewards instance with `task_ids` and `reward` lists corresponding to the provided pairs.
+    """
     task_ids = [task_id for task_id, _ in task_scores]
     rewards = [score for _, score in task_scores]
     return Rewards(task_ids=task_ids, reward=rewards)
 
 
 def _task_reward_map(task_scores: list[tuple[str, float]]) -> dict[str, float]:
+    """
+    Create a mapping from task IDs to their numeric rewards.
+    
+    Parameters:
+        task_scores (list[tuple[str, float]]): List of (task_id, score) pairs.
+    
+    Returns:
+        dict[str, float]: Dictionary mapping each `task_id` to its `score`.
+    """
     return {task_id: score for task_id, score in task_scores}
 
 
 def _serialize_top_logprob(top_logprob: Any) -> dict[str, Any]:
+    """
+    Serialize a top-logprob candidate object into a plain dictionary.
+    
+    Parameters:
+        top_logprob (Any): An object that may provide `token`, `logprob`, and `bytes` attributes.
+    
+    Returns:
+        dict[str, Any]: Dictionary with keys `"token"`, `"logprob"`, and `"bytes"` whose values are taken from the corresponding attributes of `top_logprob` or `None` if an attribute is missing.
+    """
     return {
         "token": getattr(top_logprob, "token", None),
         "logprob": getattr(top_logprob, "logprob", None),
@@ -82,6 +108,15 @@ def _serialize_top_logprob(top_logprob: Any) -> dict[str, Any]:
 
 
 def _serialize_completion_logprobs(logprobs: Any) -> list[dict[str, Any]] | None:
+    """
+    Serialize a completion's logprob structure into a list of token-level dictionaries.
+    
+    Parameters:
+        logprobs (Any): An object expected to have a `content` attribute that is a list of items; each item may have `token`, `logprob`, `bytes`, and `top_logprobs` attributes.
+    
+    Returns:
+        list[dict[str, Any]] | None: A list where each dict contains `token`, `logprob`, `bytes`, and `top_logprobs` (a list of serialized candidate dicts) for each content item, or `None` if `logprobs` is `None` or its `content` is not a list.
+    """
     if logprobs is None:
         return None
     content = getattr(logprobs, "content", None)
@@ -106,6 +141,15 @@ def _serialize_completion_logprobs(logprobs: Any) -> list[dict[str, Any]] | None
 
 
 def _serialize_content_item(item: Any) -> dict[str, Any]:
+    """
+    Serialize a content item into a JSON-serializable dictionary containing its type and any present fields.
+    
+    Parameters:
+        item (Any): Object that may have attributes `type`, `text`, `image`, `document`, `reasoning`, and `detail`. Missing attributes are ignored.
+    
+    Returns:
+        dict[str, Any]: Dictionary with a `type` key (uses the item's `type` value or `"unknown"` if absent) and entries for each of the present fields among `text`, `image`, `document`, `reasoning`, and `detail`.
+    """
     item_type = getattr(item, "type", None)
     payload: dict[str, Any] = {"type": item_type or "unknown"}
     for field in ("text", "image", "document", "reasoning", "detail"):
@@ -116,6 +160,17 @@ def _serialize_content_item(item: Any) -> dict[str, Any]:
 
 
 def _serialize_message(message: Any) -> dict[str, Any]:
+    """
+    Serialize a message object into a dictionary containing its role and structured content.
+    
+    Parameters:
+        message (Any): An object that may have `role` and `content` attributes. `content` can be a string (treated as a single text item), a list of content items, or other/absent.
+    
+    Returns:
+        dict[str, Any]: A dictionary with:
+            - "role": the message's role attribute or None.
+            - "content": a list of serialized content items; for string content this is a single item `{"type": "text", "text": ...}`, for a list each item is serialized via _serialize_content_item, and for missing/unrecognized content an empty list is returned.
+    """
     content = getattr(message, "content", None)
     if isinstance(content, str):
         serialized_content = [{"type": "text", "text": content}]
@@ -130,6 +185,14 @@ def _serialize_message(message: Any) -> dict[str, Any]:
 
 
 def _content_text(content: Any) -> str:
+    """
+    Return a textual representation of a content value, joining texts and using placeholders for non-text items.
+    
+    If `content` is a string, it is returned unchanged. If `content` is a list, this returns the concatenation of each item's `text` (skipping empty strings) separated by newlines; items with `type` equal to `"image"` or `"document"` are represented as `"[image]"` or `"[document]"` respectively. For any other input type, an empty string is returned.
+    
+    Returns:
+        text (str): Concatenated text and placeholders representing the provided content.
+    """
     if isinstance(content, str):
         return content
     if not isinstance(content, list):
@@ -150,6 +213,15 @@ def _content_text(content: Any) -> str:
 
 
 def _prompt_messages(sample: Any) -> list[Any]:
+    """
+    Extracts non-assistant messages from a sample's messages list.
+    
+    Parameters:
+        sample (Any): An object that may have a `messages` attribute (expected to be a list of message objects).
+    
+    Returns:
+        list[Any]: A list containing messages whose `role` attribute is not "assistant". Returns an empty list if `messages` is missing or not a list.
+    """
     messages = getattr(sample, "messages", None)
     if not isinstance(messages, list):
         return []
@@ -157,6 +229,18 @@ def _prompt_messages(sample: Any) -> list[Any]:
 
 
 def _prompt_text(messages: list[Any]) -> str:
+    """
+    Builds a single prompt string by concatenating non-empty messages as "role:\ncontent" blocks separated by blank lines.
+    
+    Parameters:
+        messages (list[Any]): Sequence of message-like objects; each should expose a `role` attribute (string) and a `content` attribute (string or serializable content). Messages whose rendered content is empty are omitted.
+    
+    Returns:
+        prompt_text (str): Concatenated prompt text where each message appears as:
+        "role:
+        content"
+        separated by two newlines. Roles default to "unknown" when missing.
+    """
     rendered: list[str] = []
     for message in messages:
         role = getattr(message, "role", None) or "unknown"
@@ -167,6 +251,17 @@ def _prompt_text(messages: list[Any]) -> str:
 
 
 def _sample_task_id(sample: Any) -> str:
+    """
+    Determine a task identifier for a sample by checking the sample's `id` then falling back to task IDs found in score metadata.
+    
+    If `sample.id` is a non-empty string, that value is returned. Otherwise, if `sample.scores` is a dict, the function searches each score's `metadata` for a non-empty string under the key `"task_id"` and returns the first match. Returns an empty string when no task identifier is found.
+    
+    Parameters:
+        sample (Any): An object representing a sample; may have attributes `id` (str) or `scores` (dict of score-like objects whose `metadata` may contain `"task_id"`).
+    
+    Returns:
+        str: The determined task identifier, or an empty string if none is available.
+    """
     sample_id = getattr(sample, "id", None)
     if isinstance(sample_id, str) and sample_id:
         return sample_id
@@ -183,7 +278,35 @@ def _sample_task_id(sample: Any) -> str:
 
 
 def build_training_data(task_scores: list[tuple[str, float]], eval_log_path: str) -> dict[str, Any]:
-    """Build structured post-training data from an eval log and rewards."""
+    """
+    Build a structured post-training payload by combining task rewards with an evaluation log.
+    
+    Parameters:
+        task_scores (list[tuple[str, float]]): List of (task_id, score) tuples used to map rewards to samples.
+        eval_log_path (str): Path to an evaluation log readable by inspect_ai.read_eval_log.
+    
+    Returns:
+        dict: Payload with the following top-level keys:
+            - "format": payload format identifier ("portex-rl-training-data").
+            - "version": payload version number.
+            - "source": dict containing "eval_log" (absolute path of the provided eval_log_path).
+            - "records": list of record dicts, each containing:
+                - "task_id": task identifier (str or empty string).
+                - "sample_id": sample identifier or None.
+                - "epoch": epoch number or None.
+                - "model": model identifier or None.
+                - "reward": numeric reward for the task_id or None.
+                - "reference_file": reference file from sample metadata or None.
+                - "prompt_messages": serialized list of prompt message dicts.
+                - "prompt_text": concatenated prompt text (str).
+                - "completion": completion text or object or None.
+                - "prompt_token_ids": None (placeholder).
+                - "completion_token_ids": None (placeholder).
+                - "completion_logprobs": serialized completion logprobs list or None.
+    
+    Raises:
+        ImportError: If the inspect_ai package (and its read_eval_log) is not available.
+    """
     try:
         from inspect_ai.log import read_eval_log
     except ImportError as exc:
@@ -238,14 +361,15 @@ def build_training_data(task_scores: list[tuple[str, float]], eval_log_path: str
 
 
 def write_rewards(task_scores: list[tuple[str, float]], path: str) -> str:
-    """Write task scores to an rl_rewards.json file.
-
-    Args:
-        task_scores: List of (task_id, score) tuples.
-        path: Output file path.
-
+    """
+    Write task scores to the specified path as an RL rewards JSON file.
+    
+    Parameters:
+        task_scores (list[tuple[str, float]]): List of (task_id, score) pairs to include in the payload.
+        path (str): Destination file path for the JSON output.
+    
     Returns:
-        The absolute path to the generated file.
+        str: Absolute path to the written JSON file.
     """
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -258,7 +382,17 @@ def write_rewards(task_scores: list[tuple[str, float]], path: str) -> str:
 
 
 def write_training_data(task_scores: list[tuple[str, float]], eval_log_path: str, path: str) -> str:
-    """Write structured post-training data to JSON."""
+    """
+    Write a structured training-data JSON file built from an evaluation log and task scores.
+    
+    Parameters:
+        task_scores (list[tuple[str, float]]): List of (task_id, score) tuples used to annotate records in the training payload.
+        eval_log_path (str): Path to the evaluation log used to build the training records.
+        path (str): Filesystem path where the JSON payload will be written; parent directories will be created if needed.
+    
+    Returns:
+        output_path (str): Absolute path to the written JSON file.
+    """
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = build_training_data(task_scores, eval_log_path)

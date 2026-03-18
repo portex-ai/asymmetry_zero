@@ -38,6 +38,27 @@ def run_inspect_eval(
     top_logprobs: int | None = None,
     extra_env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    """
+    Run the Inspect evaluation command for a given task and record newly produced log files.
+    
+    This prepares an environment (including DATA_DIR and PORTEX_EVAL_DATA_DIR), constructs and runs the `inspect eval` command with the provided options, captures files created under log_dir during the run, writes a JSON report to report_path, and returns the report.
+    
+    Parameters:
+        log_dir (str): Directory where Inspect writes logs; new files created there are reported.
+        report_path (str): Path to write the JSON manifest of the run.
+        data_dir (str): Path to the evaluation data directory exposed to the subprocess via environment variables.
+        model (str | None): Model identifier to pass to Inspect; omitted when None.
+        task_spec (str): Inspect task specification argument.
+        max_samples (int | None): If provided, limits Inspect to this many samples.
+        logprobs (bool): If True, request log probabilities from Inspect.
+        top_logprobs (int | None): If provided, request top-N log probabilities; implies `--logprobs`.
+        extra_env (dict[str, str] | None): Additional environment variables to set for the subprocess.
+    
+    Returns:
+        dict[str, Any]: Report dictionary containing:
+            - "log_dir": the provided log_dir
+            - "log_files": sorted list of file paths that were added to log_dir during the run
+    """
     before = _list_files_recursive(log_dir)
 
     env = dict(os.environ)
@@ -74,6 +95,14 @@ def run_inspect_eval(
 
 
 def main() -> None:
+    """
+    Parse command-line arguments and run an Inspect evaluation, writing a report manifest.
+    
+    Reads configuration from command-line flags (with defaults from environment variables), validates that --task-spec is provided, and invokes run_inspect_eval with the parsed options: --report-path, --log-dir, --data-dir, optional --model, optional --max-samples, optional --logprobs, and optional --top-logprobs. 
+    
+    Raises:
+        ValueError: If --task-spec is not provided.
+    """
     parser = argparse.ArgumentParser(description="Run Inspect eval for Portex Eval")
     parser.add_argument(
         "--report-path",

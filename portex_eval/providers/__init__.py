@@ -60,17 +60,18 @@ _PROVIDER_REGISTRY: dict[str, ProviderFactory] = {
 
 
 def get_provider(model_spec: ModelSpec, **kwargs: Any) -> Provider:
-    """Get a provider instance from a model string or config object.
-
-    Args:
-        model_spec: A string in format ``provider:model`` or a config object.
-        **kwargs: Additional arguments passed to the provider constructor.
-
+    """
+    Create and return a Provider instance for the given model specification.
+    
+    Parameters:
+        model_spec: A model specification — either a `ModelSpec`/ModelConfig object or a string like "provider:model".
+        **kwargs: Additional keyword arguments forwarded to the provider factory.
+    
     Returns:
-        An initialized Provider instance.
-
+        An initialized Provider corresponding to the provider identified by the model specification.
+    
     Raises:
-        ValueError: If the provider is not supported or model string is invalid.
+        ValueError: If the provider identifier from the model specification is not registered.
     """
     config = model_config_from_spec(model_spec)
     provider_id = config.provider
@@ -84,15 +85,21 @@ def get_provider(model_spec: ModelSpec, **kwargs: Any) -> Provider:
 
 
 def get_supported_providers() -> set[str]:
-    """Return the registered provider ids."""
+    """
+    List the currently registered provider identifiers.
+    
+    Returns:
+        set[str]: A set containing the provider IDs registered in the provider registry.
+    """
     return set(_PROVIDER_REGISTRY)
 
 
 def register_provider(provider_id: str, factory: ProviderFactory) -> None:
-    """Register a custom provider factory.
-
-    Args:
-        provider_id: The provider identifier (e.g., 'custom').
-        factory: A callable that takes (model_id, **kwargs) and returns a Provider.
+    """
+    Register a provider factory under the given identifier.
+    
+    Parameters:
+        provider_id (str): Identifier used to look up the provider (e.g., "custom").
+        factory (ProviderFactory): Callable that receives the resolved ModelConfig (and any extra kwargs passed to get_provider) and returns a Provider.
     """
     _PROVIDER_REGISTRY[provider_id] = factory

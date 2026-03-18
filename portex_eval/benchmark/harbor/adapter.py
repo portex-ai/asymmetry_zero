@@ -34,6 +34,17 @@ class PortexTaskRecord:
 
 
 def _task_list(tasks_data: Any) -> list[dict[str, Any]]:
+    """
+    Normalize a Portex tasks structure into a list of task dictionaries.
+    
+    Accepts either a mapping with a "prompts" key or a list; returns only those items that are dictionaries. If the input is a dict, the function extracts the value of the "prompts" key when it is a list. For any other input shapes or missing/invalid data, an empty list is returned.
+    
+    Parameters:
+        tasks_data (Any): The raw tasks representation — either a dict possibly containing a "prompts" list or a list of prompt entries.
+    
+    Returns:
+        list[dict[str, Any]]: A list containing only the prompt entries that are dictionaries.
+    """
     if isinstance(tasks_data, dict):
         prompts = tasks_data.get("prompts")
         if isinstance(prompts, list):
@@ -45,6 +56,23 @@ def _task_list(tasks_data: Any) -> list[dict[str, Any]]:
 
 
 def _load_portex_tasks(bundle_dir: Path) -> list[PortexTaskRecord]:
+    """
+    Load Portex tasks from a bundle directory and return normalized PortexTaskRecord entries.
+    
+    Reads tasks.json and answers.json from the provided bundle directory, pairs prompts with their corresponding answers (skipping prompts without a matching answer), and constructs a PortexTaskRecord for each matched task. For each record, the function:
+    - extracts the prompt from one of `task_prompt`, `prompt`, or `task`;
+    - uses `reference_file` from the prompt if present;
+    - filters `criteria` to dict entries;
+    - treats `passThreshold` as a float with a default of 100;
+    - ensures `tools` is a list (empty if absent);
+    - ensures `metadata` and `environment` are dictionaries (empty if absent).
+    
+    Parameters:
+        bundle_dir (Path): Path to the root of a Portex bundle containing `tasks.json` and `answers.json`.
+    
+    Returns:
+        list[PortexTaskRecord]: A list of normalized task records for tasks that have matching answers.
+    """
     tasks_data = json.loads((bundle_dir / "tasks.json").read_text(encoding="utf-8"))
     answers_data = json.loads((bundle_dir / "answers.json").read_text(encoding="utf-8"))
     prompts = {item["task_id"]: item for item in _task_list(tasks_data) if "task_id" in item}
@@ -79,6 +107,15 @@ def _load_portex_tasks(bundle_dir: Path) -> list[PortexTaskRecord]:
 
 
 def _write_task_toml(task: PortexTaskRecord, path: Path) -> None:
+    """
+    Write a Harbor-compatible task.toml for the given PortexTaskRecord to the specified file path.
+    
+    The generated TOML includes [metadata] (author, email, difficulty, category, tags), [metadata.portex] with task_id, [verifier] and [verifier.env] settings, [agent] timeout, and [environment] settings (base_image, timeouts, CPU/memory/storage and optional GPUs). Missing metadata, environment fields, or timeouts are filled with module defaults; tags always include "portex-eval" and "agent-eval".
+    
+    Parameters:
+        task (PortexTaskRecord): Task record containing metadata, environment, and task_id.
+        path (Path): Filesystem path where task.toml will be written (overwrites if exists).
+    """
     metadata = task.metadata
     environment = task.environment
     resources = environment.get("resources", {}) if isinstance(environment, dict) else {}
@@ -138,6 +175,22 @@ def _write_task_toml(task: PortexTaskRecord, path: Path) -> None:
 
 
 def _copy_reference_file(bundle_dir: Path, task: PortexTaskRecord, refs_dir: Path) -> None:
+    """
+    Ensure a task's reference file is placed under the task's refs directory by creating the destination, writing a placeholder, and copying the referenced file from the bundle when present.
+    
+    Parameters:
+        bundle_dir (Path): Root directory of the Portex bundle (expects a "refs" subdirectory).
+        task (PortexTaskRecord): Task record whose `reference_file` (and `task_id` for error messages) is used.
+        refs_dir (Path): Destination directory where the placeholder and reference file will be placed.
+    
+    Behavior:
+        - Creates `refs_dir` and writes an empty `_placeholder.txt`.
+        - If `task.reference_file` is falsy, no further action is taken.
+        - If `task.reference_file` is set, copies the file from `bundle_dir/refs/<reference_file>` into `refs_dir`, creating any necessary parent directories.
+    
+    Raises:
+        FileNotFoundError: If `task.reference_file` is specified but the source file does not exist in the bundle's refs directory.
+    """
     refs_dir.mkdir(parents=True, exist_ok=True)
     (refs_dir / "_placeholder.txt").write_text("", encoding="utf-8")
     if not task.reference_file:
@@ -151,6 +204,13 @@ def _copy_reference_file(bundle_dir: Path, task: PortexTaskRecord, refs_dir: Pat
 
 
 def _copy_runtime_package(tests_dir: Path) -> None:
+    """
+    Copy the local runtime package into a task's tests directory under runtime/portex_eval.
+    
+    Creates tests_dir/runtime if needed and copies the project package (two levels above this file) into tests_dir/runtime/portex_eval, ignoring Python cache directories and .pyc files.
+    Parameters:
+        tests_dir (Path): Destination tests directory where the runtime package will be placed.
+    """
     runtime_dir = tests_dir / "runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
     source_package_dir = Path(__file__).resolve().parents[2]
@@ -163,6 +223,24 @@ def _copy_runtime_package(tests_dir: Path) -> None:
 
 
 def _prepare_task(bundle_dir: Path, task: PortexTaskRecord, output_dir: Path) -> None:
+    """
+    Assemble and write all files and directories for a single Portex task into a Harbor-compatible task directory.
+    
+    Creates output_dir (and subdirectories) and populates it with:
+    - task.toml (generated from the task record)
+    - instruction.md (template with the task prompt substituted)
+    - environment/ (Dockerfile, requirements.txt, and refs copied from the bundle)
+    - tests/ (test scripts, grading script, runtime package, task_config.json, criteria.json)
+    - solution/ (solve.sh)
+    
+    Parameters:
+        bundle_dir (Path): Path to the source Portex bundle (used to locate reference files).
+        task (PortexTaskRecord): Normalized task record containing prompt, reference file name, criteria, thresholds, tools, metadata, and environment.
+        output_dir (Path): Target directory to create and populate for this task.
+    
+    Raises:
+        FileNotFoundError: If the task specifies a reference file that does not exist in bundle_dir/refs.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_task_toml(task, output_dir / "task.toml")
 
@@ -216,6 +294,23 @@ def create_agent_eval_bundle(
     output_dir: str,
     overwrite: bool = False,
 ) -> AgentEvalBundle:
+    """
+    Create a Harbor-compatible agent-eval bundle from a Portex bundle.
+    
+    Creates per-task directories under the output bundle's datasets directory, writes a manifest, and returns an AgentEvalBundle describing the generated bundle.
+    
+    Parameters:
+        bundle_dir (str): Path to the source Portex bundle directory.
+        output_dir (str): Path where the agent-eval bundle will be created.
+        overwrite (bool): If True, remove any existing output_dir before creating the bundle; if False and output_dir exists and is non-empty, a ValueError is raised.
+    
+    Returns:
+        AgentEvalBundle: Object with attributes `path` (output bundle path), `datasets_dir` (path to the datasets directory), and `task_count` (number of tasks prepared).
+    
+    Raises:
+        FileNotFoundError: If bundle_dir does not exist or is not a directory.
+        ValueError: If output_dir exists and is non-empty while overwrite is False.
+    """
     source_bundle = Path(bundle_dir).expanduser().resolve()
     if not source_bundle.is_dir():
         raise FileNotFoundError(f"Bundle directory not found: {source_bundle}")

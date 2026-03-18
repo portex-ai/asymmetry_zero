@@ -39,6 +39,12 @@ logger = logging.getLogger(__name__)
 
 
 def _score_to_bool(score: Score) -> bool:
+    """
+    Determine whether a Score represents a correct result.
+    
+    Returns:
+        True if the score's value equals `CORRECT` (case-insensitive), False otherwise.
+    """
     return bool(str(score.value).upper() == CORRECT)
 
 
@@ -50,6 +56,16 @@ _grade_criterion_exact_match = grade_criterion_exact_match
 
 
 def _ensure_model_role(model: Model, role: str) -> Model:
+    """
+    Ensure the given Model has the specified role and return the model.
+    
+    Parameters:
+        model (Model): The model whose role should be checked and updated if different.
+        role (str): The role to assign to the model when its current role does not match.
+    
+    Returns:
+        Model: The same model instance, with its role set to `role` if it was different.
+    """
     if model.role != role:
         model._set_role(role)
     return model
@@ -58,9 +74,18 @@ def _ensure_model_role(model: Model, role: str) -> Model:
 def _resolve_judge_models(
     model: Sequence[str | Model] | str | Model | None,
 ) -> list[Model]:
-    """Resolve judge model specifications to Inspect Model instances.
-
-    For Inspect's built-in model handling (non-provider mode).
+    """
+    Convert various judge model specifications into a list of Inspect Model instances with role set to "grader".
+    
+    Parameters:
+        model: A model specification which may be:
+            - None => treated as no judges
+            - a single Model instance
+            - a single model name string
+            - a sequence (list or tuple) of Model instances and/or model name strings
+    
+    Returns:
+        list[Model]: A list of Inspect Model instances with their role ensured to "grader". Empty list if `model` is None or not a recognized form.
     """
     if model is None:
         return []
@@ -81,9 +106,14 @@ def _resolve_judge_models(
 
 
 def _resolve_judge_providers(model_specs: list[ModelSpec]) -> dict[str, Provider]:
-    """Resolve judge model strings to Provider instances.
-
-    For portex_eval provider mode with rate limit handling.
+    """
+    Convert a list of ModelSpec into Provider instances keyed by "provider_id:model_name".
+    
+    Parameters:
+        model_specs (list[ModelSpec]): List of model specifications to resolve to providers.
+    
+    Returns:
+        dict[str, Provider]: Mapping from "provider_id:model_name" to the resolved Provider instance.
     """
     providers: dict[str, Provider] = {}
     for model_spec in model_specs:
@@ -163,6 +193,21 @@ def portex_scorer(
         }
 
     async def score(state: TaskState, target: Target) -> Score:
+        """
+        Grade a single TaskState against the answer key and return a Score summarizing pass/fail and per-criterion results.
+        
+        Loads the answer entry for the task, extracts criteria and the submission, grades each criterion using either provider-based graders or Inspect-based graders (depending on scorer configuration), aggregates awarded weights, and marks the task as passed when the total awarded score meets or exceeds the criterion pass threshold.
+        
+        Parameters:
+            state (TaskState): The task state containing messages, sample_id, and output to grade.
+            target (Target): The target used for scoring (passed through to underlying scorers).
+        
+        Returns:
+            Score: A Score whose value is CORRECT when the aggregated awarded score >= passThreshold, otherwise INCORRECT. The Score includes the original answer (if present), an explanation with the total score and threshold, and metadata with task_id, total_score, pass_threshold, and per-criterion grading details.
+        
+        Raises:
+            ValueError: If an expected criterion scorer or judge scorer returns None or is missing when required.
+        """
         task_id = str(state.sample_id)
         answer_entry = answer_key.get(task_id)
         if answer_entry is None:
@@ -192,7 +237,15 @@ def portex_scorer(
         submission = state.output.completion if state.output else ""
 
         async def grade_criterion_with_providers(criterion: dict[str, Any]) -> dict[str, Any]:
-            """Grade a criterion using provider-based judges."""
+            """
+            Grade a single criterion using provider-based judges.
+            
+            Parameters:
+                criterion (dict[str, Any]): Criterion entry from the answer key describing id, name, weight, prompt, and grader configuration.
+            
+            Returns:
+                dict[str, Any]: Grading result for the criterion, including keys such as `criterion_id`, `name`, `grader_type`, `weight`, `grade`, `passed`, `awarded`, `explanation`, and `judges`.
+            """
             return await _grade_criterion_with_shared_providers(
                 criterion,
                 question=question,
@@ -201,7 +254,30 @@ def portex_scorer(
             )
 
         async def grade_criterion_with_inspect(criterion: dict[str, Any]) -> dict[str, Any]:
-            """Grade a criterion using Inspect's model_graded_qa."""
+            """
+            Evaluate a single grading criterion using either an exact-match grader or one or more Inspect judge scorers.
+            
+            Parameters:
+                criterion (dict): Criterion specification. Expected keys include:
+                    - "id": criterion identifier
+                    - "name": criterion name
+                    - fields used by the criterion prompt generator (consumed by _criterion_prompt)
+                    - "weight" (optional): numeric weight for the criterion
+                    - any grader selection metadata used by _criterion_grader_type
+            
+            Returns:
+                dict: A result object with the following keys:
+                    - "criterion_id": the criterion's id
+                    - "name": the criterion's name
+                    - "prompt": the prompt text used for grading
+                    - "grader_type": string indicating the grader type (e.g., "llm-judge")
+                    - "weight": numeric weight awarded to the criterion
+                    - "grade": grader output value or label
+                    - "passed": `true` if the criterion is considered passed, `false` otherwise
+                    - "awarded": numeric points awarded (weight if passed, otherwise 0.0)
+                    - "explanation": human-readable explanation of the grading outcome
+                    - "judges": list of per-judge result objects when multiple judges were used
+            """
             grader_type = _criterion_grader_type(criterion)
             if grader_type == "ExactMatch":
                 return _grade_criterion_exact_match(criterion, submission)
@@ -311,17 +387,14 @@ def provider_scorer(
     judges: list[ModelSpec],
     answers_path: str | None = None,
 ) -> Scorer:
-    """Scorer that uses portex_eval providers for multi-judge grading.
-
-    This is a convenience wrapper around portex_scorer with use_provider=True.
-    It uses the provider abstraction for all judge calls, which includes
-    rate limit handling with exponential backoff.
-
-    Args:
-        judges: List of judge model strings or config objects.
-        answers_path: Path to answers.json file.
-
+    """
+    Create a Scorer that grades using provider-based judges.
+    
+    Parameters:
+        judges (list[ModelSpec]): List of provider model specifications to use as judges.
+        answers_path (str | None): Path to the answers.json file; if None the default answers file is used.
+    
     Returns:
-        Scorer function.
+        Scorer: A scorer function configured to run multi-judge grading via the provider abstraction.
     """
     return portex_scorer(model=judges, answers_path=answers_path, use_provider=True)

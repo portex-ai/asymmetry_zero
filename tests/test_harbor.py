@@ -15,6 +15,17 @@ from portex_eval.benchmark.harbor.run import run_harbor_tasks
 
 
 def _write_bundle(bundle_dir: Path) -> None:
+    """
+    Create a minimal evaluation bundle at the given directory containing a reference file, a tasks manifest, and an answers manifest.
+    
+    This writes:
+    - refs/diagram.txt containing the text "reference"
+    - tasks.json with a single prompt (task_id "task-1") referencing "diagram.txt"
+    - answers.json with a single answer entry for "task-1" that includes tools ["bash"], one ExactMatch criterion (id "c1") with weight 100 and passThreshold 100
+    
+    Parameters:
+        bundle_dir (Path): Destination directory where the bundle files and refs directory will be created.
+    """
     refs_dir = bundle_dir / "refs"
     refs_dir.mkdir(parents=True, exist_ok=True)
     (refs_dir / "diagram.txt").write_text("reference", encoding="utf-8")

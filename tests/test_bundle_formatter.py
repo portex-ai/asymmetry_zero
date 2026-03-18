@@ -20,7 +20,20 @@ from portex_eval.bundle.formatter import (
 
 @pytest.fixture
 def sample_bundle(tmp_path: Path) -> Path:
-    """Create a sample input bundle for testing."""
+    """
+    Create a sample input bundle on disk for tests.
+    
+    Writes a directory named "input_bundle" under `tmp_path` containing:
+    - tasks.json: two tasks ("task-1" and "task-2") with prompts and reference_file entries.
+    - answers.json: corresponding answer entries where each entry includes a single criterion (with `id`, `name`, `weight`, `grader_type` set to "ExactMatch", and `semanticPrompt`) and a `passThreshold`.
+    - refs/math.txt: a reference file for the math task.
+    
+    Parameters:
+        tmp_path (Path): Base temporary directory (pytest tmp_path fixture).
+    
+    Returns:
+        Path: Path to the created "input_bundle" directory.
+    """
     bundle_dir = tmp_path / "input_bundle"
     bundle_dir.mkdir()
 
@@ -82,7 +95,20 @@ def sample_bundle(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def sample_bundle_v2(tmp_path: Path) -> Path:
-    """Create a sample v2 format input bundle."""
+    """
+    Create a temporary v2-format input bundle for tests.
+    
+    Creates a directory containing:
+    - tasks.json: a version 2 tasks file with one prompt (task-1).
+    - answers.json: one answer entry for task-1 with a single criterion (`id`: "correctness", `grader_type`: "llm-judge", weight 100) and `passThreshold` 100.
+    - refs/: an empty references directory.
+    
+    Parameters:
+        tmp_path (Path): pytest temporary path used as the parent for the bundle.
+    
+    Returns:
+        Path: Path to the created bundle directory.
+    """
     bundle_dir = tmp_path / "input_bundle_v2"
     bundle_dir.mkdir()
 
@@ -124,7 +150,20 @@ def sample_bundle_v2(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def answer_only_bundle(tmp_path: Path) -> Path:
-    """Create a bundle that requires criteria induction."""
+    """
+    Create a temporary evaluation bundle containing an answer with no criteria to trigger criteria induction.
+    
+    Creates a directory named "answer_only_bundle" under the provided tmp_path and writes:
+    - tasks.json with a single task prompt,
+    - answers.json with a matching answer whose "criteria" list is empty and "passThreshold" set to 100,
+    - an empty refs/ directory.
+    
+    Parameters:
+        tmp_path (Path): Base temporary directory in which the bundle directory will be created.
+    
+    Returns:
+        Path: Path to the created bundle directory.
+    """
     bundle_dir = tmp_path / "answer_only_bundle"
     bundle_dir.mkdir()
 
@@ -279,7 +318,14 @@ class TestCriteriaInduction:
     def test_format_bundle_with_criteria_induction(
         self, answer_only_bundle: Path, tmp_path: Path
     ) -> None:
-        """Test format_bundle with criteria induction enabled."""
+        """
+        Verifies that enabling criteria induction causes format_bundle to generate and persist induced criteria.
+        
+        Patches the provider to return a single induced criterion and asserts that:
+        - result.criteria_induced is True
+        - the output answers.json contains a non-empty `criteria` list for each answer
+        - each induced criterion has `grader_type` set to "llm-judge"
+        """
         mock_response = MagicMock()
         mock_response.text = """[
             {"id": "correct", "name": "Correct", "weight": 100, "semanticPrompt": "Is correct"}
