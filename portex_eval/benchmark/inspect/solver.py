@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import json
 import os
+from mimetypes import guess_type
 from typing import Any, Literal
 
 from inspect_ai.model import (
     ChatMessage,
     ChatMessageAssistant,
+    Logprob,
+    Logprobs,
     ModelOutput,
     ModelUsage,
+    TopLogprob,
     get_model,
 )
 from inspect_ai.solver import Generate, Solver, TaskState, solver
@@ -56,7 +60,95 @@ def _extract_prompt_from_messages(messages: list[ChatMessage]) -> str:
     return "\n".join(parts)
 
 
-def _provider_model_output(provider: Provider, text: str, usage: dict[str, int] | None) -> ModelOutput:
+def _provider_messages(messages: list[ChatMessage]) -> list[dict[str, Any]]:
+    serialized: list[dict[str, Any]] = []
+    for message in messages:
+        role = getattr(message, "role", None)
+        if role not in {"system", "user", "assistant"}:
+            continue
+
+        content = getattr(message, "content", None)
+        if isinstance(content, str):
+            serialized.append({"role": role, "content": content})
+            continue
+
+        if not isinstance(content, list):
+            continue
+
+        parts: list[dict[str, Any]] = []
+        for item in content:
+            item_type = getattr(item, "type", None)
+            if item_type == "text":
+                text = getattr(item, "text", None)
+                if isinstance(text, str):
+                    parts.append({"type": "text", "text": text})
+            elif item_type == "image":
+                image = getattr(item, "image", None)
+                detail = getattr(item, "detail", None) or "auto"
+                if isinstance(image, str):
+                    parts.append({"type": "image", "image": image, "detail": detail})
+            elif item_type == "document":
+                document = getattr(item, "document", None)
+                if isinstance(document, str):
+                    mime_type = guess_type(document)[0] or "application/octet-stream"
+                    parts.append(
+                        {"type": "text", "text": f"[document: {document} ({mime_type})]"}
+                    )
+
+        serialized.append({"role": role, "content": parts})
+    return serialized
+
+
+def _provider_logprobs(raw: Any) -> Logprobs | None:
+    if not isinstance(raw, dict):
+        return None
+    choices = raw.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return None
+    choice = choices[0]
+    if not isinstance(choice, dict):
+        return None
+    logprobs = choice.get("logprobs")
+    if not isinstance(logprobs, dict):
+        return None
+    content = logprobs.get("content")
+    if not isinstance(content, list):
+        return None
+
+    entries: list[Logprob] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        top_candidates = item.get("top_logprobs")
+        entries.append(
+            Logprob(
+                token=str(item.get("token", "")),
+                logprob=float(item.get("logprob", 0.0)),
+                bytes=item.get("bytes"),
+                top_logprobs=(
+                    [
+                        TopLogprob(
+                            token=str(candidate.get("token", "")),
+                            logprob=float(candidate.get("logprob", 0.0)),
+                            bytes=candidate.get("bytes"),
+                        )
+                        for candidate in top_candidates
+                        if isinstance(candidate, dict)
+                    ]
+                    if isinstance(top_candidates, list)
+                    else None
+                ),
+            )
+        )
+    return Logprobs(content=entries)
+
+
+def _provider_model_output(
+    provider: Provider,
+    text: str,
+    usage: dict[str, int] | None,
+    raw: Any,
+) -> ModelOutput:
     output = ModelOutput.from_content(
         model=f"{provider.provider_id}:{provider.model_name}",
         content=text,
@@ -67,6 +159,8 @@ def _provider_model_output(provider: Provider, text: str, usage: dict[str, int] 
             output_tokens=int(usage.get("output_tokens", 0) or 0),
             total_tokens=int(usage.get("total_tokens", 0) or 0),
         )
+    if output.choices:
+        output.choices[0].logprobs = _provider_logprobs(raw)
     return output
 
 
@@ -107,8 +201,17 @@ def candidate_generate(
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         if use_provider and provider is not None:
             prompt = _extract_prompt_from_messages(state.messages)
-            response = await provider.agenerate(prompt, **kwargs)
-            state.output = _provider_model_output(provider, response.text, response.usage)
+            response = await provider.agenerate(
+                prompt,
+                messages=_provider_messages(state.messages),
+                **kwargs,
+            )
+            state.output = _provider_model_output(
+                provider,
+                response.text,
+                response.usage,
+                response.raw,
+            )
             state.messages.append(state.output.message)
             return state
 
@@ -148,11 +251,12 @@ def provider_generate(
         prompt = _extract_prompt_from_messages(state.messages)
         response = await provider.agenerate(
             prompt,
+            messages=_provider_messages(state.messages),
             max_tokens=max_tokens,
             temperature=temperature,
             **kwargs,
         )
-        state.output = _provider_model_output(provider, response.text, response.usage)
+        state.output = _provider_model_output(provider, response.text, response.usage, response.raw)
         state.messages.append(state.output.message)
         return state
 

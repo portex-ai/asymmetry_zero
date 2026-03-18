@@ -81,6 +81,27 @@ def _judge_models_from_metadata(metadata: dict[str, Any]) -> list[str]:
     return judges
 
 
+def _score_prefix(tasks_df: pd.DataFrame) -> str:
+    prefixes = sorted(
+        {
+            column[: -len("_metadata")]
+            for column in tasks_df.columns
+            if column.startswith("score_") and column.endswith("_metadata")
+        }
+    )
+    if "score_portex_scorer" in prefixes:
+        return "score_portex_scorer"
+    if "score_provider_scorer" in prefixes:
+        return "score_provider_scorer"
+    if prefixes:
+        return prefixes[0]
+    return "score_portex_scorer"
+
+
+def _score_field(row: pd.Series, prefix: str, suffix: str) -> Any:
+    return row.get(f"{prefix}_{suffix}")
+
+
 def _event_call_cost(call: Any) -> float | None:
     if call is None:
         return None
@@ -199,6 +220,7 @@ def _build_eval_level(
     }
     usage_found = False
     judge_models: set[str] = set()
+    score_prefix = _score_prefix(tasks_df)
 
     for _, row in tasks_df.iterrows():
         usage = _parse_json(row.get("model_usage"))
@@ -210,7 +232,7 @@ def _build_eval_level(
                 if solver_usage.get(key) is not None:
                     eval_usage[key] = (eval_usage[key] or 0) + (solver_usage[key] or 0)
 
-        metadata = _parse_json(row.get("score_portex_scorer_metadata"))
+        metadata = _parse_json(_score_field(row, score_prefix, "metadata"))
         for model in _judge_models_from_metadata(metadata):
             judge_models.add(model)
         judge_usage = _usage_for_models(usage, list(judge_models))
@@ -282,10 +304,11 @@ def _build_task_level(
     dataset_location = log_row.get("dataset_location")
     composite_id = _composite_id(dataset_location)
     solver_model = log_row.get("model")
+    score_prefix = _score_prefix(tasks_df)
 
     rows: list[dict[str, Any]] = []
     for _, row in tasks_df.iterrows():
-        metadata = _parse_json(row.get("score_portex_scorer_metadata"))
+        metadata = _parse_json(_score_field(row, score_prefix, "metadata"))
         usage = _parse_json(row.get("model_usage"))
         solver_usage = _usage_for_models(usage, [solver_model]) if solver_model else {}
         judge_models = _judge_models_from_metadata(metadata)
@@ -307,11 +330,11 @@ def _build_task_level(
                 "model": row.get("model"),
                 "task_id": metadata.get("task_id"),
                 "prompt": row.get("input"),
-                "model_response": row.get("score_portex_scorer_answer"),
+                "model_response": _score_field(row, score_prefix, "answer"),
                 "PassThreshold": metadata.get("pass_threshold"),
                 "score": metadata.get("total_score"),
-                "grade": row.get("score_portex_scorer"),
-                "reasoning": row.get("score_portex_scorer_explanation"),
+                "grade": row.get(score_prefix),
+                "reasoning": _score_field(row, score_prefix, "explanation"),
                 "solver_usage_data_latency": candidate_summary.get("latency"),
                 "solver_usage_data_input_tokens": solver_usage.get("input_tokens"),
                 "solver_usage_data_output_tokens": solver_usage.get("output_tokens"),
@@ -332,10 +355,11 @@ def _build_criterion_level(
 ) -> pd.DataFrame:
     dataset_location = log_row.get("dataset_location")
     composite_id = _composite_id(dataset_location)
+    score_prefix = _score_prefix(tasks_df)
     rows: list[dict[str, Any]] = []
 
     for _, row in tasks_df.iterrows():
-        metadata = _parse_json(row.get("score_portex_scorer_metadata"))
+        metadata = _parse_json(_score_field(row, score_prefix, "metadata"))
         usage = _parse_json(row.get("model_usage"))
         sample_events = events[events["sample_id"] == row.get("sample_id")]
         judge_models = _judge_models_from_metadata(metadata)
@@ -363,7 +387,7 @@ def _build_criterion_level(
                     "model": row.get("model"),
                     "task_id": metadata.get("task_id"),
                     "prompt": row.get("input"),
-                    "model_response": row.get("score_portex_scorer_answer"),
+                    "model_response": _score_field(row, score_prefix, "answer"),
                     "criterion_id": criterion.get("criterion_id"),
                     "criterion_name": criterion.get("name"),
                     "criterion_prompt": prompt,
@@ -387,10 +411,11 @@ def _build_judgement_level(
 ) -> pd.DataFrame:
     dataset_location = log_row.get("dataset_location")
     composite_id = _composite_id(dataset_location)
+    score_prefix = _score_prefix(tasks_df)
     rows: list[dict[str, Any]] = []
 
     for _, row in tasks_df.iterrows():
-        metadata = _parse_json(row.get("score_portex_scorer_metadata"))
+        metadata = _parse_json(_score_field(row, score_prefix, "metadata"))
         usage = _parse_json(row.get("model_usage"))
         sample_events = events[events["sample_id"] == row.get("sample_id")]
         for criterion in metadata.get("criteria", []) or []:
@@ -422,7 +447,7 @@ def _build_judgement_level(
                         "model": row.get("model"),
                         "task_id": metadata.get("task_id"),
                         "prompt": row.get("input"),
-                        "model_response": row.get("score_portex_scorer_answer"),
+                        "model_response": _score_field(row, score_prefix, "answer"),
                         "criterion_id": criterion.get("criterion_id"),
                         "criterion_name": criterion.get("name"),
                         "criterion_prompt": criterion.get("prompt"),

@@ -19,6 +19,24 @@ def test_provider_model_output_returns_inspect_model_output() -> None:
         provider,
         "Answer: cat",
         {"input_tokens": 10, "output_tokens": 3, "total_tokens": 13},
+        {
+            "choices": [
+                {
+                    "logprobs": {
+                        "content": [
+                            {
+                                "token": "Answer",
+                                "logprob": -0.1,
+                                "bytes": [65],
+                                "top_logprobs": [
+                                    {"token": "Answer", "logprob": -0.1, "bytes": [65]}
+                                ],
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
     )
 
     assert output.model == "vllm:Qwen/Qwen3-VL-4B-Instruct"
@@ -28,3 +46,5 @@ def test_provider_model_output_returns_inspect_model_output() -> None:
     assert output.usage.input_tokens == 10
     assert output.usage.output_tokens == 3
     assert output.usage.total_tokens == 13
+    assert output.choices[0].logprobs is not None
+    assert output.choices[0].logprobs.content[0].token == "Answer"

@@ -187,3 +187,21 @@ def model_config_to_dict(config: ModelConfig) -> dict[str, Any]:
     if config.options:
         payload["options"] = dict(config.options)
     return payload
+
+
+def normalize_usage_dict(usage: Any) -> dict[str, int] | None:
+    """Normalize provider usage payloads to input/output/total token keys."""
+    if not isinstance(usage, dict):
+        return None
+
+    input_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0
+    output_tokens = usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0
+    total_tokens = usage.get("total_tokens")
+    if total_tokens is None:
+        total_tokens = int(input_tokens) + int(output_tokens)
+
+    return {
+        "input_tokens": int(input_tokens),
+        "output_tokens": int(output_tokens),
+        "total_tokens": int(total_tokens),
+    }

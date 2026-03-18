@@ -104,13 +104,24 @@ def _inspect_model_name(config: ModelConfig) -> str:
     return f"openai/{config.model}"
 
 
-def _provider_env(candidate: ModelConfig, judges: list[ModelConfig]) -> dict[str, str]:
-    return {
+def _provider_env(
+    candidate: ModelConfig,
+    judges: list[ModelConfig],
+    *,
+    logprobs: bool,
+    top_logprobs: int | None,
+) -> dict[str, str]:
+    env = {
         "PORTEX_CANDIDATE_MODEL": candidate.model_string,
         "PORTEX_CANDIDATE_CONFIG": json.dumps(model_config_to_dict(candidate)),
         "PORTEX_JUDGE_MODELS": ",".join(judge.model_string for judge in judges),
         "PORTEX_JUDGE_CONFIGS": json.dumps([model_config_to_dict(judge) for judge in judges]),
     }
+    if logprobs:
+        env["PORTEX_LOGPROBS"] = "true"
+    if top_logprobs is not None:
+        env["PORTEX_TOP_LOGPROBS"] = str(top_logprobs)
+    return env
 
 
 def benchmark_one(
@@ -178,7 +189,12 @@ def benchmark_one(
 
     report_path = os.path.join(output_dir, "manifest.json")
     extra_env = (
-        _provider_env(candidate_config, judge_configs)
+        _provider_env(
+            candidate_config,
+            judge_configs,
+            logprobs=logprobs,
+            top_logprobs=top_logprobs,
+        )
         if use_providers
         else {"PORTEX_JUDGE_MODELS": ",".join(_inspect_model_name(j) for j in judge_configs)}
     )

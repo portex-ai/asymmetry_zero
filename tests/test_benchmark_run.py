@@ -67,6 +67,36 @@ def test_benchmark_one_uses_provider_task_for_custom_endpoint() -> None:
         assert "PORTEX_JUDGE_CONFIGS" in kwargs["extra_env"]
 
 
+def test_benchmark_one_threads_provider_logprob_env() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        bundle_dir = Path(tmpdir) / "bundle"
+        bundle_dir.mkdir()
+        _write_bundle(bundle_dir)
+
+        with (
+            patch("portex_eval.benchmark.run.run_inspect_eval", return_value={"log_files": []})
+            as mock_run,
+            patch("portex_eval.benchmark.run._pick_eval_log", return_value="/tmp/fake.eval"),
+        ):
+            benchmark_one(
+                bundle_dir=str(bundle_dir),
+                index_root=tmpdir,
+                eval_runs_root=tmpdir,
+                candidate_spec={
+                    "provider": "vllm",
+                    "model": "Qwen/Qwen3-VL-4B-Instruct",
+                    "base_url": "https://modal.example/v1",
+                },
+                judge_specs=[{"provider": "anthropic", "model": "claude-sonnet-4-5"}],
+                logprobs=True,
+                top_logprobs=5,
+            )
+
+        extra_env = mock_run.call_args.kwargs["extra_env"]
+        assert extra_env["PORTEX_LOGPROBS"] == "true"
+        assert extra_env["PORTEX_TOP_LOGPROBS"] == "5"
+
+
 def test_benchmark_one_keeps_inspect_path_for_plain_openrouter() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         bundle_dir = Path(tmpdir) / "bundle"

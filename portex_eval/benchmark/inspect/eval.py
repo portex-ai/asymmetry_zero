@@ -71,6 +71,17 @@ def _judge_provider_specs(default: list[str]) -> list[ModelSpec]:
     return _parse_env_list("PORTEX_JUDGE_MODELS", default)
 
 
+def _candidate_generation_options() -> dict[str, Any]:
+    options: dict[str, Any] = {}
+    if os.getenv("PORTEX_LOGPROBS", "").lower() in {"1", "true", "yes"}:
+        options["logprobs"] = True
+    top_logprobs = os.getenv("PORTEX_TOP_LOGPROBS")
+    if top_logprobs:
+        options["top_logprobs"] = int(top_logprobs)
+        options["logprobs"] = True
+    return options
+
+
 @task
 def portex_qa_eval() -> Task:
     """Standard Portex QA evaluation task using Inspect's model handling.
@@ -126,7 +137,7 @@ def portex_qa_eval_with_providers() -> Task:
         dataset=dataset_generator(str(data_dir + "/tasks.json")),
         solver=[
             system_message(SYSTEM_MESSAGE),
-            provider_generate(candidate_model),
+            provider_generate(candidate_model, **_candidate_generation_options()),
         ],
         scorer=provider_scorer(
             judges=judge_models,
@@ -192,7 +203,7 @@ def create_eval_task(
             dataset=dataset_generator(str(data_dir + "/tasks.json")),
             solver=[
                 system_message(system_prompt),
-                provider_generate(candidate_model),
+                provider_generate(candidate_model, **_candidate_generation_options()),
             ],
             scorer=provider_scorer(
                 judges=judge_models,

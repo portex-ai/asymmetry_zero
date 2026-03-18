@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import os
 import random
 import time
+from mimetypes import guess_type
+from pathlib import Path
 from typing import Any
 
 import httpx
 
-from portex_eval.providers.base import ModelConfig, Provider, Response
+from portex_eval.providers.base import ModelConfig, Provider, Response, normalize_usage_dict
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +79,49 @@ class OpenAICompatibleProvider(Provider):
     def provider_id(self) -> str:
         return self._provider_name
 
+    def _normalize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
+        for message in messages:
+            content = message.get("content")
+            if not isinstance(content, list):
+                normalized.append(message)
+                continue
+
+            parts: list[dict[str, Any]] = []
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                item_type = item.get("type")
+                if item_type == "text":
+                    text = item.get("text")
+                    if isinstance(text, str):
+                        parts.append({"type": "text", "text": text})
+                elif item_type == "image":
+                    image_value = item.get("image")
+                    detail = item.get("detail", "auto")
+                    if isinstance(image_value, str):
+                        parts.append(
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": self._image_url(image_value),
+                                    "detail": detail,
+                                },
+                            }
+                        )
+
+            normalized.append({**message, "content": parts})
+        return normalized
+
+    def _image_url(self, image_value: str) -> str:
+        if image_value.startswith(("http://", "https://", "data:")):
+            return image_value
+
+        path = Path(image_value)
+        mime_type = guess_type(path.as_posix())[0] or "application/octet-stream"
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        return f"data:{mime_type};base64,{encoded}"
+
     def _get_headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json", **self._config.headers}
         if self._api_key:
@@ -86,13 +132,18 @@ class OpenAICompatibleProvider(Provider):
         self,
         prompt: str,
         *,
+        messages: list[dict[str, Any]] | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": self._config.model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": (
+                self._normalize_messages(messages)
+                if isinstance(messages, list)
+                else [{"role": "user", "content": prompt}]
+            ),
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
@@ -114,7 +165,7 @@ class OpenAICompatibleProvider(Provider):
         if not choices:
             raise ValueError("No choices in response")
         text = choices[0].get("message", {}).get("content", "")
-        usage = data.get("usage")
+        usage = normalize_usage_dict(data.get("usage"))
         return Response(text=text, usage=usage, raw=data)
 
     def _handle_rate_limit(self, response: httpx.Response, attempt: int) -> float:

@@ -87,6 +87,15 @@ class TestHelperFunctions:
         result = tables._judge_models_from_metadata({})
         assert result == []
 
+    def test_score_prefix_prefers_provider_scorer_when_present(self) -> None:
+        frame = pd.DataFrame(
+            columns=[
+                "score_provider_scorer_metadata",
+                "score_provider_scorer_answer",
+            ]
+        )
+        assert tables._score_prefix(frame) == "score_provider_scorer"
+
     def test_matches_criterion_true_for_matching_prompts(self) -> None:
         assert tables._matches_criterion("prompt text", "prompt text") is True
         assert tables._matches_criterion("  prompt text  ", "prompt text") is True
