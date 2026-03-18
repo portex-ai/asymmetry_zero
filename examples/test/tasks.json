@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "prompts": [
+    {
+      "task_id": "geography-001",
+      "task_prompt": "What is the capital of France?",
+      "reference_file": ""
+    }
+  ]
+}

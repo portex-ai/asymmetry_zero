@@ -34,6 +34,8 @@ def run_inspect_eval(
     model: str,
     task_spec: str,
     max_samples: int | None = None,
+    logprobs: bool = False,
+    top_logprobs: int | None = None,
     extra_env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     before = _list_files_recursive(log_dir)
@@ -55,6 +57,10 @@ def run_inspect_eval(
     ]
     if max_samples is not None:
         cmd.extend(["--max-samples", str(max_samples)])
+    if logprobs or top_logprobs is not None:
+        cmd.append("--logprobs")
+    if top_logprobs is not None:
+        cmd.extend(["--top-logprobs", str(top_logprobs)])
 
     _run_inspect_eval(cmd, env=env)
 
@@ -94,6 +100,15 @@ def main() -> None:
         type=int,
         default=None,
     )
+    parser.add_argument(
+        "--logprobs",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--top-logprobs",
+        type=int,
+        default=None,
+    )
     args = parser.parse_args()
 
     if not args.task_spec:
@@ -106,6 +121,8 @@ def main() -> None:
         model=args.model,
         task_spec=args.task_spec,
         max_samples=args.max_samples,
+        logprobs=args.logprobs,
+        top_logprobs=args.top_logprobs,
     )
 
 

@@ -153,6 +153,39 @@ class TestRunCommand:
             mock_run_eval.assert_called_once()
             assert mock_run_eval.call_args.kwargs["max_samples"] == 4
 
+    def test_run_passes_logprob_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_result = MagicMock()
+            mock_result.run_id = "run-1"
+            mock_result.output_dir = "/tmp/out"
+            mock_result.logs = []
+            mock_result.reports = None
+            mock_result.rewards_path = ""
+            mock_result.training_data_path = ""
+            mock_result.rewards = MagicMock(task_ids=[])
+
+            with patch("portex_eval.cli.run_eval", return_value=mock_result) as mock_run_eval:
+                result = runner.invoke(
+                    app,
+                    [
+                        "run",
+                        "--bundle",
+                        tmpdir,
+                        "--judge",
+                        "openrouter:openai/gpt-4o",
+                        "--candidate",
+                        "openrouter:openai/gpt-4o-mini",
+                        "--logprobs",
+                        "--top-logprobs",
+                        "5",
+                    ],
+                )
+
+            assert result.exit_code == 0
+            mock_run_eval.assert_called_once()
+            assert mock_run_eval.call_args.kwargs["logprobs"] is True
+            assert mock_run_eval.call_args.kwargs["top_logprobs"] == 5
+
 
 class TestMainHelp:
     """Tests for the main CLI help."""

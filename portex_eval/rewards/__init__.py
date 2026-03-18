@@ -6,6 +6,18 @@ evaluation results for use in reinforcement learning training pipelines.
 
 from __future__ import annotations
 
-from portex_eval.rewards.writer import build_rewards, extract_rewards, write_rewards
+from portex_eval.rewards.writer import (
+    build_rewards,
+    build_training_data,
+    extract_rewards,
+    write_rewards,
+    write_training_data,
+)
 
-__all__ = ["build_rewards", "extract_rewards", "write_rewards"]
+__all__ = [
+    "build_rewards",
+    "build_training_data",
+    "extract_rewards",
+    "write_rewards",
+    "write_training_data",
+]

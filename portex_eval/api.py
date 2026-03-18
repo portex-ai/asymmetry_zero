@@ -117,6 +117,8 @@ def eval(
     config: Config | None = None,
     task_spec: str | None = None,
     max_samples: int | None = None,
+    logprobs: bool = False,
+    top_logprobs: int | None = None,
     overwrite: bool = False,
 ) -> EvalResults:
     """Run an evaluation benchmark and return results.
@@ -130,6 +132,8 @@ def eval(
         config: Runtime configuration. Defaults to Config.from_env().
         task_spec: Task specification override.
         max_samples: Maximum number of bundle samples to run in parallel.
+        logprobs: Whether to request completion logprobs from the candidate model.
+        top_logprobs: Number of top logprob alternatives to request per completion token.
         overwrite: If True, allow overwriting existing output directories.
             Defaults to False to prevent accidental data loss.
 
@@ -149,6 +153,8 @@ def eval(
         raise PortexEvalError("At least one candidate model is required")
     if max_samples is not None and max_samples < 1:
         raise PortexEvalError("max_samples must be at least 1")
+    if top_logprobs is not None and top_logprobs < 1:
+        raise PortexEvalError("top_logprobs must be at least 1")
 
     if benchmark is None:
         if path is None:
@@ -180,6 +186,7 @@ def eval(
     last_reports: ReportPaths | None = None
     last_rewards: Rewards | None = None
     last_rewards_path = ""
+    last_training_data_path = ""
 
     try:
         for candidate in candidate_models:
@@ -190,6 +197,8 @@ def eval(
                 model_endpoint=candidate,
                 task_spec=task_spec,
                 max_samples=max_samples,
+                logprobs=logprobs,
+                top_logprobs=top_logprobs,
                 overwrite=overwrite,
             )
             eval_logs.append(result.eval_log)
@@ -207,17 +216,28 @@ def eval(
                 judgement_level=str(reports_dir / "judgement_level.csv"),
             )
 
-            from portex_eval.rewards import build_rewards, extract_rewards, write_rewards
+            from portex_eval.rewards import (
+                build_rewards,
+                extract_rewards,
+                write_rewards,
+                write_training_data,
+            )
 
             task_scores = extract_rewards(report_paths.task_level)
             rewards_path = write_rewards(
                 task_scores, str(Path(result.output_dir) / "rl_rewards.json")
+            )
+            training_data_path = write_training_data(
+                task_scores,
+                result.eval_log,
+                str(Path(result.output_dir) / "rl_training_data.json"),
             )
             rewards_payload = build_rewards(task_scores)
 
             last_reports = report_paths
             last_rewards = rewards_payload
             last_rewards_path = rewards_path
+            last_training_data_path = training_data_path
     finally:
         if previous_judge_models is None:
             os.environ.pop("PORTEX_JUDGE_MODELS", None)
@@ -232,6 +252,7 @@ def eval(
         reports=last_reports,
         rewards=last_rewards or Rewards(),
         rewards_path=last_rewards_path,
+        training_data_path=last_training_data_path,
         run_id=last_run_id,
         output_dir=last_output_dir,
     )

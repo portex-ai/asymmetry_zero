@@ -68,6 +68,7 @@ class EvalResults:
     reports: ReportPaths | None = None
     rewards: Rewards = field(default_factory=Rewards)
     rewards_path: str = ""
+    training_data_path: str = ""
     run_id: str = ""
     output_dir: str = ""
 
@@ -86,6 +87,9 @@ class EvalResults:
             reports=reports,
             rewards=self.rewards,
             rewards_path=str(Path(self.rewards_path).resolve()) if self.rewards_path else "",
+            training_data_path=(
+                str(Path(self.training_data_path).resolve()) if self.training_data_path else ""
+            ),
             run_id=self.run_id,
             output_dir=str(Path(self.output_dir).resolve()) if self.output_dir else "",
         )

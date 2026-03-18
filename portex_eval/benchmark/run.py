@@ -79,6 +79,8 @@ def benchmark_one(
     model_endpoint: str,
     task_spec: str | None = None,
     max_samples: int | None = None,
+    logprobs: bool = False,
+    top_logprobs: int | None = None,
     overwrite: bool = False,
 ) -> BenchmarkResult:
     """Run a single benchmark evaluation.
@@ -90,6 +92,8 @@ def benchmark_one(
         model_endpoint: Model identifier (e.g., "openrouter/google/gemini-2.5-flash")
         task_spec: Task specification (defaults to portex_qa_eval)
         max_samples: Maximum number of dataset samples to run in parallel.
+        logprobs: Whether to request completion logprobs from the candidate model.
+        top_logprobs: Number of top logprob alternatives to request per completion token.
         overwrite: If True, allow overwriting existing output directories.
             Defaults to False to prevent accidental data loss.
 
@@ -133,6 +137,8 @@ def benchmark_one(
         model=model_endpoint,
         task_spec=task_spec_resolved,
         max_samples=max_samples,
+        logprobs=logprobs,
+        top_logprobs=top_logprobs,
     )
 
     eval_log = _pick_eval_log(report, logs_dir)
@@ -188,6 +194,8 @@ def benchmark_matrix(
     eval_runs_root: str | None = None,
     task_spec: str | None = None,
     max_samples: int | None = None,
+    logprobs: bool = False,
+    top_logprobs: int | None = None,
     overwrite: bool = False,
 ) -> BenchmarkMatrixResult:
     """Run benchmarks across multiple bundles and models.
@@ -199,6 +207,8 @@ def benchmark_matrix(
         eval_runs_root: Root directory for eval run outputs
         task_spec: Task specification
         max_samples: Maximum number of dataset samples to run in parallel.
+        logprobs: Whether to request completion logprobs from the candidate model.
+        top_logprobs: Number of top logprob alternatives to request per completion token.
         overwrite: If True, allow overwriting existing output directories.
 
     Returns:
@@ -215,6 +225,8 @@ def benchmark_matrix(
                     model_endpoint=model,
                     task_spec=task_spec,
                     max_samples=max_samples,
+                    logprobs=logprobs,
+                    top_logprobs=top_logprobs,
                     overwrite=overwrite,
                 )
             )

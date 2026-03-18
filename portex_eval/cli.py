@@ -108,6 +108,21 @@ def run(
             min=1,
         ),
     ] = None,
+    logprobs: Annotated[
+        bool,
+        typer.Option(
+            "--logprobs",
+            help="Request completion logprobs from the candidate model when supported.",
+        ),
+    ] = False,
+    top_logprobs: Annotated[
+        int | None,
+        typer.Option(
+            "--top-logprobs",
+            help="Number of top alternative logprobs to request per completion token.",
+            min=1,
+        ),
+    ] = None,
     overwrite: Annotated[
         bool,
         typer.Option(
@@ -146,6 +161,8 @@ def run(
             output_dir=str(output_dir) if output_dir else None,
             task_spec=task_spec,
             max_samples=max_samples,
+            logprobs=logprobs,
+            top_logprobs=top_logprobs,
             overwrite=overwrite,
         )
         typer.echo(f"Run ID: {result.run_id}")
@@ -160,6 +177,8 @@ def run(
         if result.rewards_path:
             typer.echo(f"Rewards JSON: {result.rewards_path}")
             typer.echo(f"Rewards entries: {len(result.rewards.task_ids)}")
+        if result.training_data_path:
+            typer.echo(f"Training data JSON: {result.training_data_path}")
     except PortexEvalError as exc:
         typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from None

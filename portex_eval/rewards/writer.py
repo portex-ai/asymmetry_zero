@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
+from typing import Any
 
 from portex_eval.types import Rewards
 
@@ -68,6 +69,174 @@ def build_rewards(task_scores: list[tuple[str, float]]) -> Rewards:
     return Rewards(task_ids=task_ids, reward=rewards)
 
 
+def _task_reward_map(task_scores: list[tuple[str, float]]) -> dict[str, float]:
+    return {task_id: score for task_id, score in task_scores}
+
+
+def _serialize_top_logprob(top_logprob: Any) -> dict[str, Any]:
+    return {
+        "token": getattr(top_logprob, "token", None),
+        "logprob": getattr(top_logprob, "logprob", None),
+        "bytes": getattr(top_logprob, "bytes", None),
+    }
+
+
+def _serialize_completion_logprobs(logprobs: Any) -> list[dict[str, Any]] | None:
+    if logprobs is None:
+        return None
+    content = getattr(logprobs, "content", None)
+    if not isinstance(content, list):
+        return None
+    serialized: list[dict[str, Any]] = []
+    for item in content:
+        top_logprobs = getattr(item, "top_logprobs", None)
+        serialized.append(
+            {
+                "token": getattr(item, "token", None),
+                "logprob": getattr(item, "logprob", None),
+                "bytes": getattr(item, "bytes", None),
+                "top_logprobs": (
+                    [_serialize_top_logprob(candidate) for candidate in top_logprobs]
+                    if isinstance(top_logprobs, list)
+                    else None
+                ),
+            }
+        )
+    return serialized
+
+
+def _serialize_content_item(item: Any) -> dict[str, Any]:
+    item_type = getattr(item, "type", None)
+    payload: dict[str, Any] = {"type": item_type or "unknown"}
+    for field in ("text", "image", "document", "reasoning", "detail"):
+        value = getattr(item, field, None)
+        if value is not None:
+            payload[field] = value
+    return payload
+
+
+def _serialize_message(message: Any) -> dict[str, Any]:
+    content = getattr(message, "content", None)
+    if isinstance(content, str):
+        serialized_content = [{"type": "text", "text": content}]
+    elif isinstance(content, list):
+        serialized_content = [_serialize_content_item(item) for item in content]
+    else:
+        serialized_content = []
+    return {
+        "role": getattr(message, "role", None),
+        "content": serialized_content,
+    }
+
+
+def _content_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+
+    parts: list[str] = []
+    for item in content:
+        text = getattr(item, "text", None)
+        if isinstance(text, str) and text.strip():
+            parts.append(text)
+            continue
+        item_type = getattr(item, "type", None)
+        if item_type == "image":
+            parts.append("[image]")
+        elif item_type == "document":
+            parts.append("[document]")
+    return "\n".join(parts)
+
+
+def _prompt_messages(sample: Any) -> list[Any]:
+    messages = getattr(sample, "messages", None)
+    if not isinstance(messages, list):
+        return []
+    return [message for message in messages if getattr(message, "role", None) != "assistant"]
+
+
+def _prompt_text(messages: list[Any]) -> str:
+    rendered: list[str] = []
+    for message in messages:
+        role = getattr(message, "role", None) or "unknown"
+        content = _content_text(getattr(message, "content", None))
+        if content.strip():
+            rendered.append(f"{role}:\n{content}")
+    return "\n\n".join(rendered)
+
+
+def _sample_task_id(sample: Any) -> str:
+    sample_id = getattr(sample, "id", None)
+    if isinstance(sample_id, str) and sample_id:
+        return sample_id
+
+    scores = getattr(sample, "scores", None)
+    if isinstance(scores, dict):
+        for score in scores.values():
+            metadata = getattr(score, "metadata", None)
+            if isinstance(metadata, dict):
+                task_id = metadata.get("task_id")
+                if isinstance(task_id, str) and task_id:
+                    return task_id
+    return ""
+
+
+def build_training_data(task_scores: list[tuple[str, float]], eval_log_path: str) -> dict[str, Any]:
+    """Build structured post-training data from an eval log and rewards."""
+    try:
+        from inspect_ai.log import read_eval_log
+    except ImportError as exc:
+        raise ImportError(
+            "inspect-ai is required to build training artifacts from eval logs"
+        ) from exc
+
+    eval_log = read_eval_log(eval_log_path, header_only=False)
+    reward_by_task = _task_reward_map(task_scores)
+    records: list[dict[str, Any]] = []
+
+    for sample in eval_log.samples:
+        task_id = _sample_task_id(sample)
+        prompt_messages = _prompt_messages(sample)
+        output = getattr(sample, "output", None)
+        choices = getattr(output, "choices", None) if output is not None else None
+        first_choice = choices[0] if isinstance(choices, list) and choices else None
+
+        records.append(
+            {
+                "task_id": task_id,
+                "sample_id": getattr(sample, "id", None),
+                "epoch": getattr(sample, "epoch", None),
+                "model": getattr(output, "model", None),
+                "reward": reward_by_task.get(task_id),
+                "reference_file": (
+                    getattr(sample, "metadata", {}).get("reference_file")
+                    if isinstance(getattr(sample, "metadata", None), dict)
+                    else None
+                ),
+                "prompt_messages": [_serialize_message(message) for message in prompt_messages],
+                "prompt_text": _prompt_text(prompt_messages),
+                "completion": getattr(output, "completion", None),
+                "prompt_token_ids": None,
+                "completion_token_ids": None,
+                "completion_logprobs": (
+                    _serialize_completion_logprobs(getattr(first_choice, "logprobs", None))
+                    if first_choice is not None
+                    else None
+                ),
+            }
+        )
+
+    return {
+        "format": "portex-rl-training-data",
+        "version": 1,
+        "source": {
+            "eval_log": str(Path(eval_log_path).resolve()),
+        },
+        "records": records,
+    }
+
+
 def write_rewards(task_scores: list[tuple[str, float]], path: str) -> str:
     """Write task scores to an rl_rewards.json file.
 
@@ -85,4 +254,14 @@ def write_rewards(task_scores: list[tuple[str, float]], path: str) -> str:
         payload = build_rewards(task_scores)
         json.dump({"task_ids": payload.task_ids, "reward": payload.reward}, handle, indent=2)
 
+    return str(output_path.resolve())
+
+
+def write_training_data(task_scores: list[tuple[str, float]], eval_log_path: str, path: str) -> str:
+    """Write structured post-training data to JSON."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = build_training_data(task_scores, eval_log_path)
+    with output_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
     return str(output_path.resolve())
