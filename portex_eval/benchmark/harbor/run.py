@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
 import sys
+from dataclasses import replace
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from portex_eval.providers import ModelSpec, model_config_from_spec, model_config_to_dict
+from portex_eval.providers import (
+    ModelConfig,
+    ModelSpec,
+    model_config_from_spec,
+    model_config_to_dict,
+)
 from portex_eval.types import AgentEvalResults, ReportPaths, Rewards
 
 
@@ -35,6 +42,35 @@ def _extract_agent_model(extra_args: list[str] | None) -> str | None:
     return None
 
 
+def _default_api_key_env(provider: str) -> str | None:
+    if provider == "openrouter":
+        return "OPENROUTER_API_KEY"
+    if provider == "openai":
+        return "OPENAI_API_KEY"
+    if provider == "anthropic":
+        return "ANTHROPIC_API_KEY"
+    return None
+
+
+def _materialize_judge_config_secrets(
+    specs: list[ModelSpec],
+    env: dict[str, str],
+) -> list[dict[str, object]]:
+    materialized: list[dict[str, object]] = []
+    for spec in specs:
+        config = model_config_from_spec(spec)
+        api_key = config.api_key
+        api_key_env = config.api_key_env or _default_api_key_env(config.provider)
+        if api_key is None and api_key_env:
+            api_key = env.get(api_key_env)
+
+        if api_key is not None:
+            config = replace(config, api_key=api_key, api_key_env=None)
+
+        materialized.append(model_config_to_dict(config))
+    return materialized
+
+
 def run_harbor_tasks(
     *,
     task_root: str,
@@ -45,6 +81,17 @@ def run_harbor_tasks(
     overwrite: bool = False,
 ) -> HarborRunResult:
     from portex_eval.benchmark.harbor.results import write_harbor_artifacts
+
+    try:
+        harbor_spec = importlib.util.find_spec("harbor.cli.main")
+    except ModuleNotFoundError:
+        harbor_spec = None
+    if harbor_spec is None:
+        raise ModuleNotFoundError(
+            "Harbor is not installed in this environment. "
+            "Install the known-good Harbor stack with "
+            "`uv sync --group harbor` or `pip install 'portex-eval[harbor]'`."
+        )
 
     root = Path(task_root).expanduser().resolve()
     datasets_dir = root / "datasets"
@@ -80,7 +127,7 @@ def run_harbor_tasks(
     if judges:
         configs = [model_config_from_spec(spec) for spec in judges]
         child_env["PORTEX_JUDGE_CONFIGS"] = json.dumps(
-            [model_config_to_dict(config) for config in configs]
+            _materialize_judge_config_secrets(judges, child_env)
         )
         child_env["PORTEX_JUDGE_MODELS"] = ",".join(
             f"{config.provider}:{config.model}" for config in configs

@@ -29,6 +29,8 @@ uv sync
 uv run portex-eval --help
 ```
 
+This default `uv sync` installs the standard development stack only. Harbor is kept out of the default dev environment so Linux workflows do not fail on Harbor's heavier optional dependency chain.
+
 With pip:
 
 ```bash
@@ -48,6 +50,19 @@ If you only need Harbor-backed agent evals in addition to the base package:
 pip install 'portex-eval[harbor]'
 ```
 
+From source with `uv`, install Harbor explicitly when you need agent evals:
+
+```bash
+uv sync --group harbor
+# or, to install the package extra as well:
+uv sync --extra harbor
+```
+
+`portex-eval` pins the Harbor stack to the same known-good versions used in `harbor-portex-bench`:
+
+- `harbor==0.1.42`
+- `claude-agent-sdk==0.1.36`
+
 ## Quick Start
 
 ### Option 1: Using an existing bundle
@@ -56,13 +71,15 @@ pip install 'portex-eval[harbor]'
 from portex_eval import eval
 
 results = eval(
-    path="./mybenchmark",  # Directory with tasks.json, answers.json, refs/
+    path="./examples/simple_bundle",
     judges=[
         "openrouter:openai/gpt-4o",
         "openrouter:anthropic/claude-3.5-sonnet",
         "openrouter:google/gemini-2.5-flash",
     ],
     candidates=["openrouter:meta-llama/llama-3.3-70b-instruct"],
+    output_dir="/examples/jobs",
+
 )
 
 # Access results
@@ -105,7 +122,8 @@ portex-eval run \
   --judge openrouter:openai/gpt-4o-mini \
   --judge openrouter:anthropic/claude-3.5-sonnet \
   --judge openrouter:google/gemini-2.5-flash \
-  --candidate-config '{"provider":"vllm","model":"Qwen/Qwen3-VL-4B-Instruct","base_url":"https://portex--qwen3-vl-4b-instruct-vllm-baseline-serve.modal.run/v1"}'
+  --candidate openrouter:openai/gpt-5.2 \
+  --output examples/jobs/simple_bundle
 
 # Mixed providers and a custom Modal/vLLM endpoint
 portex-eval run \
@@ -127,13 +145,17 @@ Start from the same Portex bundle format, then generate Harbor tasks and run Har
 # Create Harbor task directories from a Portex bundle
 portex-eval agent-create \
   --bundle examples/simple_bundle \
-  --output ./agent_eval_tasks/simple_bundle
+  --output examples/simple_bundle_agent
 
 # Run Harbor on the generated tasks
-portex-eval agent-run \
-  --tasks ./agent_eval_tasks/simple_bundle \
-  --judge openrouter:openai/gpt-4o-mini \
-  -- --model demo-agent
+portex-eval agent-run   \
+    --tasks examples/simple_bundle_agent \
+    --judge openrouter:openai/gpt-4o-mini  \
+    --   \
+    --env modal   \
+    --agent terminus-2  \
+    --model openrouter/openai/gpt-5.4  \
+    --jobs-dir examples/jobs/simple_bundle_agent
 ```
 
 `agent-run` writes Harbor jobs plus the same downstream artifacts as the Inspect path:

@@ -7,6 +7,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from portex_eval.benchmark.harbor.adapter import create_agent_eval_bundle
 from portex_eval.benchmark.harbor.results import write_harbor_artifacts
 from portex_eval.benchmark.harbor.run import run_harbor_tasks
@@ -75,9 +77,13 @@ def test_create_agent_eval_bundle_generates_harbor_task_dirs() -> None:
         assert (task_dir / "environment" / "refs" / "diagram.txt").is_file()
 
         task_config = json.loads((task_dir / "tests" / "task_config.json").read_text(encoding="utf-8"))
+        task_toml = (task_dir / "task.toml").read_text(encoding="utf-8")
         assert task_config["task_id"] == "task-1"
         assert task_config["reference_file"] == "diagram.txt"
         assert task_config["judge_models"]
+        assert 'OPENROUTER_API_KEY = "${OPENROUTER_API_KEY}"' in task_toml
+        assert "OPENAI_API_KEY" not in task_toml
+        assert "ANTHROPIC_API_KEY" not in task_toml
 
 
 def test_run_harbor_tasks_builds_command_and_env() -> None:
@@ -86,6 +92,7 @@ def test_run_harbor_tasks_builds_command_and_env() -> None:
         (task_root / "datasets").mkdir()
 
         with (
+            patch("importlib.util.find_spec", return_value=object()),
             patch("subprocess.run") as mock_subprocess,
             patch(
                 "portex_eval.benchmark.harbor.results.write_harbor_artifacts",
@@ -114,6 +121,48 @@ def test_run_harbor_tasks_builds_command_and_env() -> None:
         assert "PORTEX_JUDGE_CONFIGS" in env
         assert result.reports.eval_level == "eval.csv"
         mock_artifacts.assert_called_once()
+
+
+def test_run_harbor_tasks_materializes_judge_api_keys() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        task_root = Path(tmpdir)
+        (task_root / "datasets").mkdir()
+
+        with (
+            patch("importlib.util.find_spec", return_value=object()),
+            patch("subprocess.run") as mock_subprocess,
+            patch(
+                "portex_eval.benchmark.harbor.results.write_harbor_artifacts",
+                return_value=(
+                    ("eval.csv", "task.csv", "criterion.csv", "judgement.csv"),
+                    type("RewardsPayload", (), {"task_ids": ["task-1"], "reward": [100.0]})(),
+                    "rl_rewards.json",
+                    "rl_training_data.json",
+                ),
+            ),
+            patch.dict("os.environ", {"OPENAI_API_KEY": "openai-test-key"}, clear=False),
+        ):
+            run_harbor_tasks(
+                task_root=str(task_root),
+                judges=[{"provider": "openai", "model": "gpt-4o-mini"}],
+            )
+
+        env = mock_subprocess.call_args.kwargs["env"]
+        judge_configs = json.loads(env["PORTEX_JUDGE_CONFIGS"])
+        assert judge_configs[0]["provider"] == "openai"
+        assert judge_configs[0]["model"] == "gpt-4o-mini"
+        assert judge_configs[0]["api_key"] == "openai-test-key"
+        assert "api_key_env" not in judge_configs[0]
+
+
+def test_run_harbor_tasks_requires_harbor_install() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        task_root = Path(tmpdir)
+        (task_root / "datasets").mkdir()
+
+        with patch("importlib.util.find_spec", return_value=None):
+            with pytest.raises(ModuleNotFoundError, match="uv sync --group harbor"):
+                run_harbor_tasks(task_root=str(task_root))
 
 
 def test_write_harbor_artifacts_emits_reports_and_rl_files() -> None:

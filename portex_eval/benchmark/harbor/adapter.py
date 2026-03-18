@@ -114,8 +114,6 @@ def _write_task_toml(task: PortexTaskRecord, path: Path) -> None:
     lines.append("")
     lines.append("[verifier.env]")
     lines.append('OPENROUTER_API_KEY = "${OPENROUTER_API_KEY}"')
-    lines.append('OPENAI_API_KEY = "${OPENAI_API_KEY}"')
-    lines.append('ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"')
     lines.append('PORTEX_JUDGE_MODELS = "${PORTEX_JUDGE_MODELS}"')
     lines.append('PORTEX_JUDGE_CONFIGS = "${PORTEX_JUDGE_CONFIGS}"')
 

@@ -581,14 +581,18 @@ wheels = [
 
 [[package]]
 name = "claude-agent-sdk"
-version = "0.1.49"
+version = "0.1.36"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio", marker = "python_full_version >= '3.12'" },
     { name = "mcp", marker = "python_full_version >= '3.12'" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/66/79/c241e2c15779c04c36894fb84559068f9f1a8391f615c32e9e8b1db93e81/claude_agent_sdk-0.1.36.tar.gz", hash = "sha256:3c0a7322210c4a24177ca57d2a46ee74a641f5cf1ba4007f44b57b6d370abe5a", size = 61609, upload-time = "2026-02-13T20:08:48.558Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/65/08/0e33ede7b3035ba953f5a59597b8cb94ea2f3fb3124e5d6f6e255bf9c025/claude_agent_sdk-0.1.49-py3-none-macosx_11_0_arm64.whl", hash = "sha256:a869330d4a15b12c96ae24144b8e29999ff25315267f248634986179e9536a04", size = 57620663, upload-time = "2026-03-17T00:44:27.792Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/ff/908fb18784e8116637fd2ecfdf398a88739142afc5e73cc175cbff92d15c/claude_agent_sdk-0.1.36-py3-none-macosx_11_0_arm64.whl", hash = "sha256:e805d4201e435420a2a1757e8798738705c0129cca7c94954fa6b3ac4d68d7fe", size = 54805683, upload-time = "2026-02-13T20:08:32.602Z" },
+    { url = "https://files.pythonhosted.org/packages/90/90/9ac0dacff94c1cdf9f139521cf5578bff02463f92fe5866f86ccf55371b9/claude_agent_sdk-0.1.36-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:f398c091b9051e765eb54da40af43102b00dfd3c6628a31ce276d9afb5f665a1", size = 69557700, upload-time = "2026-02-13T20:08:37.179Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/66/2b309f3b38aabb3d9b77742b2261c82db6de7ce4d9bedba46afbcc6b8597/claude_agent_sdk-0.1.36-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:d0b7c67ee298551a31f22a671bdce972207a4276b320e17b4b526b754442e862", size = 70136851, upload-time = "2026-02-13T20:08:41.719Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/4a/80b8d179477be8e373854615a6806997a512a8ac953f8e6795712ae2ebaf/claude_agent_sdk-0.1.36-py3-none-win_amd64.whl", hash = "sha256:6c0c133abe5a64a5f7a8f54e5d52828173c8993a1781e633355e6dce741a7a3f", size = 72666927, upload-time = "2026-02-13T20:08:46.025Z" },
 ]
 
 [[package]]
@@ -1363,7 +1367,7 @@ wheels = [
 
 [[package]]
 name = "harbor"
-version = "0.1.45"
+version = "0.1.42"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "claude-agent-sdk", marker = "python_full_version >= '3.12'" },
@@ -1391,9 +1395,9 @@ dependencies = [
     { name = "typer", marker = "python_full_version >= '3.12'" },
     { name = "uvicorn", marker = "python_full_version >= '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/89/78/e4da8b6c33b8c7a5d5d923cc296628d309bdf642f9ba66ed0d5b3301efc4/harbor-0.1.45.tar.gz", hash = "sha256:f8999cdb21978e33478d460ed6253c52b729b6d04d76ce119a5ef23d3bf6c306", size = 650970, upload-time = "2026-02-27T01:21:35.091Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/63/8a/df3d52c67223e30c49a3385e254e0d689dcbac2cbc7d1bf1402e1fd7a15d/harbor-0.1.42.tar.gz", hash = "sha256:70b053498e1b6e7359f1b7360e2051e047aaab9f7710ee2874cdaec151c374a9", size = 607135, upload-time = "2026-01-20T05:53:34.93Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ca/dc/003653587735fea639fbb6b2221cda8dbe03cc9c1af9d292f055d5a6da42/harbor-0.1.45-py3-none-any.whl", hash = "sha256:ea1494f2dc1cf4286c7d390b3d8e89bb23c201ab9c570117c8319fb57a39d56a", size = 741599, upload-time = "2026-02-27T01:21:33.492Z" },
+    { url = "https://files.pythonhosted.org/packages/03/06/812505f1b932378ccf213e374fd154e3decbdb93f2b6b3278f05732ef62e/harbor-0.1.42-py3-none-any.whl", hash = "sha256:736cd84b97343cff3f57f6065a4833f3e7c19da112f012c49d5fe5b1206fc156", size = 691532, upload-time = "2026-01-20T05:53:36.597Z" },
 ]
 
 [[package]]
@@ -3174,6 +3178,7 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
+    { name = "claude-agent-sdk", marker = "python_full_version >= '3.12'" },
     { name = "harbor", marker = "python_full_version >= '3.12'" },
     { name = "httpx" },
     { name = "inspect-ai" },
@@ -3181,7 +3186,6 @@ all = [
     { name = "pyarrow" },
 ]
 dev = [
-    { name = "harbor", marker = "python_full_version >= '3.12'" },
     { name = "httpx" },
     { name = "inspect-ai" },
     { name = "mypy" },
@@ -3198,6 +3202,7 @@ dev = [
     { name = "types-pyyaml" },
 ]
 harbor = [
+    { name = "claude-agent-sdk", marker = "python_full_version >= '3.12'" },
     { name = "harbor", marker = "python_full_version >= '3.12'" },
 ]
 inspect = [
@@ -3210,7 +3215,6 @@ providers = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "harbor", marker = "python_full_version >= '3.12'" },
     { name = "httpx" },
     { name = "inspect-ai" },
     { name = "mypy" },
@@ -3226,12 +3230,17 @@ dev = [
     { name = "ruff" },
     { name = "types-pyyaml" },
 ]
+harbor = [
+    { name = "claude-agent-sdk", marker = "python_full_version >= '3.12'" },
+    { name = "harbor", marker = "python_full_version >= '3.12'" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "harbor", marker = "python_full_version >= '3.12' and extra == 'all'" },
-    { name = "harbor", marker = "python_full_version >= '3.12' and extra == 'dev'" },
-    { name = "harbor", marker = "python_full_version >= '3.12' and extra == 'harbor'" },
+    { name = "claude-agent-sdk", marker = "python_full_version >= '3.12' and extra == 'all'", specifier = "==0.1.36" },
+    { name = "claude-agent-sdk", marker = "python_full_version >= '3.12' and extra == 'harbor'", specifier = "==0.1.36" },
+    { name = "harbor", marker = "python_full_version >= '3.12' and extra == 'all'", specifier = "==0.1.42" },
+    { name = "harbor", marker = "python_full_version >= '3.12' and extra == 'harbor'", specifier = "==0.1.42" },
     { name = "httpx", marker = "extra == 'all'", specifier = ">=0.25.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.25.0" },
     { name = "httpx", marker = "extra == 'providers'", specifier = ">=0.25.0" },
@@ -3262,7 +3271,6 @@ provides-extras = ["providers", "inspect", "harbor", "all", "dev"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "harbor", marker = "python_full_version >= '3.12'" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "inspect-ai", specifier = ">=0.3.0" },
     { name = "mypy", specifier = ">=1.0" },
@@ -3275,6 +3283,10 @@ dev = [
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "ruff", specifier = ">=0.1.0" },
     { name = "types-pyyaml", specifier = ">=6.0" },
+]
+harbor = [
+    { name = "claude-agent-sdk", marker = "python_full_version >= '3.12'", specifier = "==0.1.36" },
+    { name = "harbor", marker = "python_full_version >= '3.12'", specifier = "==0.1.42" },
 ]
 
 [[package]]

@@ -43,19 +43,21 @@ inspect = [
     "inspect-ai>=0.3.0",
 ]
 harbor = [
-    "harbor; python_version >= '3.12'",
+    # Match the working Linux Harbor stack used by harbor-portex-bench.
+    "harbor==0.1.42; python_version >= '3.12'",
+    "claude-agent-sdk==0.1.36; python_version >= '3.12'",
 ]
 all = [
     "httpx>=0.25.0",
     "inspect-ai>=0.3.0",
-    "harbor; python_version >= '3.12'",
+    "harbor==0.1.42; python_version >= '3.12'",
+    "claude-agent-sdk==0.1.36; python_version >= '3.12'",
     "openai",
     "pyarrow",
 ]
 dev = [
     "httpx>=0.25.0",
     "inspect-ai>=0.3.0",
-    "harbor; python_version >= '3.12'",
     "pandas>=2.0",
     "pandas-stubs>=2.0",
     "python-dotenv>=1.0.0",
@@ -75,7 +77,6 @@ include = ["portex_eval*"]
 dev = [
     "httpx>=0.25.0",
     "inspect-ai>=0.3.0",
-    "harbor; python_version >= '3.12'",
     "pandas>=2.0",
     "pandas-stubs>=2.0",
     "python-dotenv>=1.0.0",
@@ -86,6 +87,10 @@ dev = [
     "mypy>=1.0",
     "ruff>=0.1.0",
     "types-PyYAML>=6.0",
+]
+harbor = [
+    "harbor==0.1.42; python_version >= '3.12'",
+    "claude-agent-sdk==0.1.36; python_version >= '3.12'",
 ]
 
 [tool.uv]
