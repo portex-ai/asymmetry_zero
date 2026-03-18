@@ -1,24 +1,26 @@
-"""Model provider abstractions for portex-eval.
-
-Providers wrap external LLM APIs and expose a uniform interface
-for generation calls. Currently supports:
-
-- OpenRouter: openrouter:<model_id> (e.g., openrouter:google/gemini-2.5-flash)
-
-Usage:
-    from portex_eval.providers import get_provider
-
-    provider = get_provider("openrouter:google/gemini-2.5-flash")
-    response = provider.generate("What is 2+2?")
-    print(response.text)
-"""
+"""Model provider abstractions for portex-eval."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
 
-from portex_eval.providers.base import Provider, Response, parse_model_string
+from portex_eval.providers.anthropic import AnthropicProvider, create_anthropic_provider
+from portex_eval.providers.base import (
+    ModelConfig,
+    ModelSpec,
+    Provider,
+    Response,
+    model_config_from_spec,
+    model_config_to_dict,
+    parse_model_string,
+)
+from portex_eval.providers.openai import OpenAIProvider, create_openai_provider
+from portex_eval.providers.openai_compatible import (
+    OpenAICompatibleProvider,
+    OpenAICompatibleRateLimitError,
+    create_openai_compatible_provider,
+)
 from portex_eval.providers.openrouter import (
     OpenRouterProvider,
     RateLimitError,
@@ -28,9 +30,18 @@ from portex_eval.providers.openrouter import (
 __all__ = [
     "Provider",
     "Response",
+    "ModelConfig",
+    "ModelSpec",
     "OpenRouterProvider",
+    "OpenAIProvider",
+    "AnthropicProvider",
+    "OpenAICompatibleProvider",
     "RateLimitError",
+    "OpenAICompatibleRateLimitError",
     "get_provider",
+    "get_supported_providers",
+    "model_config_from_spec",
+    "model_config_to_dict",
     "parse_model_string",
 ]
 
@@ -39,17 +50,20 @@ ProviderFactory = Callable[..., Provider]
 
 _PROVIDER_REGISTRY: dict[str, ProviderFactory] = {
     "openrouter": create_openrouter_provider,
+    "openai": create_openai_provider,
+    "anthropic": create_anthropic_provider,
+    "openai_compatible": create_openai_compatible_provider,
+    "openai-compatible": create_openai_compatible_provider,
+    "vllm": create_openai_compatible_provider,
+    "custom": create_openai_compatible_provider,
 }
 
 
-def get_provider(model_string: str, **kwargs: Any) -> Provider:
-    """Get a provider instance from a model string.
+def get_provider(model_spec: ModelSpec, **kwargs: Any) -> Provider:
+    """Get a provider instance from a model string or config object.
 
     Args:
-        model_string: A string in format 'provider:model_id'.
-            Examples:
-                - 'openrouter:google/gemini-2.5-flash'
-                - 'openrouter:anthropic/claude-3.5-sonnet'
+        model_spec: A string in format ``provider:model`` or a config object.
         **kwargs: Additional arguments passed to the provider constructor.
 
     Returns:
@@ -58,14 +72,20 @@ def get_provider(model_string: str, **kwargs: Any) -> Provider:
     Raises:
         ValueError: If the provider is not supported or model string is invalid.
     """
-    provider_id, model_id = parse_model_string(model_string)
+    config = model_config_from_spec(model_spec)
+    provider_id = config.provider
 
     if provider_id not in _PROVIDER_REGISTRY:
         supported = ", ".join(sorted(_PROVIDER_REGISTRY.keys()))
         raise ValueError(f"Unknown provider '{provider_id}'. Supported providers: {supported}")
 
     factory = _PROVIDER_REGISTRY[provider_id]
-    return factory(model_id, **kwargs)
+    return factory(config, **kwargs)
+
+
+def get_supported_providers() -> set[str]:
+    """Return the registered provider ids."""
+    return set(_PROVIDER_REGISTRY)
 
 
 def register_provider(provider_id: str, factory: ProviderFactory) -> None:

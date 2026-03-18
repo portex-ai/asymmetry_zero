@@ -87,6 +87,15 @@ class TestHelperFunctions:
         result = tables._judge_models_from_metadata({})
         assert result == []
 
+    def test_score_prefix_prefers_provider_scorer_when_present(self) -> None:
+        frame = pd.DataFrame(
+            columns=[
+                "score_provider_scorer_metadata",
+                "score_provider_scorer_answer",
+            ]
+        )
+        assert tables._score_prefix(frame) == "score_provider_scorer"
+
     def test_matches_criterion_true_for_matching_prompts(self) -> None:
         assert tables._matches_criterion("prompt text", "prompt text") is True
         assert tables._matches_criterion("  prompt text  ", "prompt text") is True
@@ -118,6 +127,26 @@ class TestSummarizeEvents:
         result = tables._summarize_events(df)
         assert result["latency"] == pytest.approx(4.0)
         assert result["cost"] == pytest.approx(0.04)
+
+
+class TestFilterEvents:
+    """Tests for filtering event dataframes."""
+
+    def test_filter_events_handles_empty_frame_without_expected_columns(self) -> None:
+        empty_df = pd.DataFrame()
+        result = tables._filter_events(empty_df, "grader", ["ExactMatch"])
+        assert result.empty
+
+    def test_filter_events_falls_back_to_model_when_role_unavailable(self) -> None:
+        df = pd.DataFrame(
+            {
+                "model_event_model": ["judge-a", "judge-b"],
+                "model_event_role": [pd.NA, pd.NA],
+            }
+        )
+        result = tables._filter_events(df, "grader", ["judge-b"])
+        assert len(result) == 1
+        assert result.iloc[0]["model_event_model"] == "judge-b"
 
 
 class TestLoadFunction:

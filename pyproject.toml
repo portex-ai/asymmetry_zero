@@ -42,9 +42,16 @@ providers = [
 inspect = [
     "inspect-ai>=0.3.0",
 ]
+harbor = [
+    # Match the working Linux Harbor stack used by harbor-portex-bench.
+    "harbor==0.1.42; python_version >= '3.12'",
+    "claude-agent-sdk==0.1.36; python_version >= '3.12'",
+]
 all = [
     "httpx>=0.25.0",
     "inspect-ai>=0.3.0",
+    "harbor==0.1.42; python_version >= '3.12'",
+    "claude-agent-sdk==0.1.36; python_version >= '3.12'",
     "openai",
     "pyarrow",
 ]
@@ -80,6 +87,10 @@ dev = [
     "mypy>=1.0",
     "ruff>=0.1.0",
     "types-PyYAML>=6.0",
+]
+harbor = [
+    "harbor==0.1.42; python_version >= '3.12'",
+    "claude-agent-sdk==0.1.36; python_version >= '3.12'",
 ]
 
 [tool.uv]

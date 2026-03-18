@@ -7,6 +7,7 @@ or the portex_eval provider abstraction with rate limit handling.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -16,9 +17,14 @@ from inspect_ai.solver import system_message
 from portex_eval.benchmark.inspect.dataset import dataset_generator
 from portex_eval.benchmark.inspect.scorer import portex_scorer, provider_scorer
 from portex_eval.benchmark.inspect.solver import candidate_generate, provider_generate
+from portex_eval.providers import ModelSpec
 
 SYSTEM_MESSAGE = """
 Complete the task to the best of your ability.
+
+After your reasoning, state your final answer clearly on a single line that starts
+with Answer: so it can be parsed automatically. Example:
+Answer: The capital of France is Paris.
 """
 
 DEFAULT_JUDGE_MODELS_INSPECT = [
@@ -42,6 +48,38 @@ def _parse_env_list(env_var: str, default: list[str]) -> list[str]:
     if not value:
         return default
     return [m.strip() for m in value.split(",") if m.strip()]
+
+
+def _parse_env_json(env_var: str) -> Any | None:
+    value = os.getenv(env_var)
+    if not value:
+        return None
+    return json.loads(value)
+
+
+def _candidate_provider_spec() -> ModelSpec | None:
+    config = _parse_env_json("PORTEX_CANDIDATE_CONFIG")
+    if config is not None:
+        return config
+    return os.getenv("PORTEX_CANDIDATE_MODEL")
+
+
+def _judge_provider_specs(default: list[str]) -> list[ModelSpec]:
+    configs = _parse_env_json("PORTEX_JUDGE_CONFIGS")
+    if isinstance(configs, list) and configs:
+        return configs
+    return _parse_env_list("PORTEX_JUDGE_MODELS", default)
+
+
+def _candidate_generation_options() -> dict[str, Any]:
+    options: dict[str, Any] = {}
+    if os.getenv("PORTEX_LOGPROBS", "").lower() in {"1", "true", "yes"}:
+        options["logprobs"] = True
+    top_logprobs = os.getenv("PORTEX_TOP_LOGPROBS")
+    if top_logprobs:
+        options["top_logprobs"] = int(top_logprobs)
+        options["logprobs"] = True
+    return options
 
 
 @task
@@ -86,8 +124,8 @@ def portex_qa_eval_with_providers() -> Task:
         Inspect Task instance.
     """
     data_dir = os.getenv("PORTEX_EVAL_DATA_DIR", DATA_DIR) or DATA_DIR
-    candidate_model = os.getenv("PORTEX_CANDIDATE_MODEL")
-    judge_models = _parse_env_list("PORTEX_JUDGE_MODELS", DEFAULT_JUDGE_MODELS_PROVIDER)
+    candidate_model = _candidate_provider_spec()
+    judge_models = _judge_provider_specs(DEFAULT_JUDGE_MODELS_PROVIDER)
 
     if not candidate_model:
         raise ValueError(
@@ -99,7 +137,7 @@ def portex_qa_eval_with_providers() -> Task:
         dataset=dataset_generator(str(data_dir + "/tasks.json")),
         solver=[
             system_message(SYSTEM_MESSAGE),
-            provider_generate(candidate_model),
+            provider_generate(candidate_model, **_candidate_generation_options()),
         ],
         scorer=provider_scorer(
             judges=judge_models,
@@ -110,8 +148,8 @@ def portex_qa_eval_with_providers() -> Task:
 
 def create_eval_task(
     data_dir: str | None = None,
-    candidate_model: str | None = None,
-    judge_models: list[str] | None = None,
+        candidate_model: ModelSpec | None = None,
+        judge_models: list[ModelSpec] | None = None,
     use_providers: bool = False,
     system_prompt: str | None = None,
     **kwargs: Any,
@@ -123,9 +161,9 @@ def create_eval_task(
 
     Args:
         data_dir: Path to bundle directory containing tasks.json and answers.json.
-        candidate_model: Candidate model string (e.g., 'openrouter:google/gemini-2.5-flash').
+        candidate_model: Candidate model string or config object.
             Required if use_providers=True.
-        judge_models: List of judge model strings. Defaults to DEFAULT_JUDGE_MODELS.
+        judge_models: List of judge model strings or config objects.
         use_providers: If True, use portex_eval.providers for generation and scoring.
             This enables rate limit handling with exponential backoff.
         system_prompt: Custom system prompt. Defaults to SYSTEM_MESSAGE.
@@ -147,9 +185,7 @@ def create_eval_task(
     """
     data_dir = data_dir or os.getenv("PORTEX_EVAL_DATA_DIR", DATA_DIR) or DATA_DIR
     if use_providers:
-        judge_models = judge_models or _parse_env_list(
-            "PORTEX_JUDGE_MODELS", DEFAULT_JUDGE_MODELS_PROVIDER
-        )
+        judge_models = judge_models or _judge_provider_specs(DEFAULT_JUDGE_MODELS_PROVIDER)
     else:
         judge_models = judge_models or _parse_env_list(
             "PORTEX_JUDGE_MODELS", DEFAULT_JUDGE_MODELS_INSPECT
@@ -157,7 +193,7 @@ def create_eval_task(
     system_prompt = system_prompt or SYSTEM_MESSAGE
 
     if use_providers:
-        candidate_model = candidate_model or os.getenv("PORTEX_CANDIDATE_MODEL")
+        candidate_model = candidate_model or _candidate_provider_spec()
         if not candidate_model:
             raise ValueError(
                 "candidate_model is required when use_providers=True. "
@@ -167,7 +203,7 @@ def create_eval_task(
             dataset=dataset_generator(str(data_dir + "/tasks.json")),
             solver=[
                 system_message(system_prompt),
-                provider_generate(candidate_model),
+                provider_generate(candidate_model, **_candidate_generation_options()),
             ],
             scorer=provider_scorer(
                 judges=judge_models,

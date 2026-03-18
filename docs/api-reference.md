@@ -13,8 +13,8 @@ from portex_eval import eval
 
 results = eval(
     path="./mybenchmark",       # Path to bundle directory
-    judges=["openrouter:..."],  # Judge model identifiers
-    candidates=["openrouter:..."],  # Candidate model identifiers
+    judges=["openrouter:..."],  # Judge model strings or config objects
+    candidates=["openrouter:..."],  # Candidate model strings or config objects
     output_dir=None,            # Optional output directory
     config=None,                # Optional Config instance
     task_spec=None,             # Optional task specification override
@@ -28,8 +28,8 @@ results = eval(
 |-----------|------|----------|-------------|
 | `path` | `str` | One of path/benchmark | Path to the bundle directory |
 | `benchmark` | `Benchmark` | One of path/benchmark | Benchmark instance from `create_benchmark()` |
-| `judges` | `list[str]` | Yes | List of judge model identifiers |
-| `candidates` | `list[str]` | Yes | List of candidate model identifiers |
+| `judges` | `list[str | dict]` | Yes | List of judge model strings or config objects |
+| `candidates` | `list[str | dict]` | Yes | List of candidate model strings or config objects |
 | `output_dir` | `str` | No | Output directory. Defaults to `./eval_runs/<run_id>/` |
 | `config` | `Config` | No | Runtime configuration. Defaults to `Config.from_env()` |
 | `task_spec` | `str` | No | Task specification override |
@@ -56,6 +56,25 @@ results = eval(
         "openrouter:google/gemini-2.5-flash",
     ],
     candidates=["openrouter:meta-llama/llama-3.3-70b-instruct"],
+)
+```
+
+Custom endpoints can be supplied per model:
+
+```python
+results = eval(
+    path="./examples/simple_bundle",
+    judges=[
+        "openrouter:google/gemini-2.5-flash",
+        {"provider": "anthropic", "model": "claude-sonnet-4-5"},
+    ],
+    candidates=[
+        {
+            "provider": "vllm",
+            "model": "Qwen/Qwen3-VL-4B-Instruct",
+            "base_url": "https://portex--qwen3-vl-4b-instruct-vllm-baseline-serve.modal.run/v1",
+        }
+    ],
 )
 ```
 
@@ -87,11 +106,23 @@ benchmark = create_benchmark("./mybench.json")
 
 #### Input Format
 
-The input JSON must be a list of objects with `task`, `answer`, and optional `reference_file`:
+The input JSON must be a list of objects with `task`, `criteria`, and optional `reference_file`:
 
 ```json
 [
-  {"task": "What is 2+2?", "answer": "4", "reference_file": ""}
+  {
+    "task": "What is 2+2?",
+    "criteria": [
+      {
+        "id": "math-exact",
+        "name": "Exact answer",
+        "weight": 100,
+        "grader_type": "ExactMatch",
+        "semanticPrompt": "4"
+      }
+    ],
+    "reference_file": ""
+  }
 ]
 ```
 
@@ -99,6 +130,66 @@ The input JSON must be a list of objects with `task`, `answer`, and optional `re
 
 Creates a bundle directory adjacent to the input file:
 - `./mybench.json` → `./mybench/tasks.json`, `./mybench/answers.json`, `./mybench/refs/`
+
+---
+
+### create_agent_eval()
+
+Generate Harbor task directories from a Portex bundle.
+
+```python
+from portex_eval import create_agent_eval
+
+bundle = create_agent_eval(
+    path="./examples/simple_bundle",
+    output_dir="./agent_eval_tasks/simple_bundle",
+)
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `path` | `str` | One of path/benchmark | Path to the bundle directory |
+| `benchmark` | `Benchmark` | One of path/benchmark | Benchmark instance from `create_benchmark()` |
+| `output_dir` | `str` | Yes | Destination directory for generated Harbor tasks |
+| `overwrite` | `bool` | No | If True, replace an existing output directory |
+
+#### Returns
+
+`AgentEvalBundle` - Descriptor with the generated Harbor task root and `datasets/` directory.
+
+---
+
+### agent_eval()
+
+Run a Harbor-backed agent evaluation on generated Harbor task directories.
+
+```python
+from portex_eval import agent_eval
+
+results = agent_eval(
+    task_root="./agent_eval_tasks/simple_bundle",
+    judges=["openrouter:openai/gpt-4o-mini"],
+    extra_args=["--model", "demo-agent"],
+)
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_root` | `str` | Yes | Root directory created by `create_agent_eval()` |
+| `judges` | `list[str | dict]` | No | Judge model strings or config objects used by the Harbor verifier |
+| `output_dir` | `str` | No | Optional destination for a copied run workspace |
+| `n_concurrent` | `int` | No | Harbor task concurrency |
+| `env` | `str` | No | Harbor environment profile |
+| `extra_args` | `list[str]` | No | Extra CLI args forwarded to `harbor run` |
+| `overwrite` | `bool` | No | Allow overwriting an existing output directory |
+
+#### Returns
+
+`AgentEvalResults` - Results object with Harbor job paths, CSV reports, and RL artifacts.
 
 ---
 
@@ -148,6 +239,20 @@ class Benchmark:
 
 ---
 
+### AgentEvalBundle
+
+Returned by `create_agent_eval()`.
+
+```python
+@dataclass(frozen=True)
+class AgentEvalBundle:
+    path: str
+    datasets_dir: str
+    task_count: int
+```
+
+---
+
 ### EvalResults
 
 Returned by `eval()`.
@@ -165,6 +270,24 @@ class EvalResults:
 #### Methods
 
 - `with_absolute_paths() -> EvalResults` - Return a copy with resolved absolute paths
+
+---
+
+### AgentEvalResults
+
+Returned by `agent_eval()`.
+
+```python
+@dataclass(frozen=True)
+class AgentEvalResults:
+    datasets_dir: str
+    jobs_dir: str
+    reports: ReportPaths | None
+    rewards_path: str
+    training_data_path: str
+    run_id: str
+    output_dir: str
+```
 
 ---
 

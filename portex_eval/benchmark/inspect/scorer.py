@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import re
 from collections.abc import Awaitable, Callable, Iterable, Sequence
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
 
@@ -26,58 +23,30 @@ from inspect_ai.scorer import (
 )
 from inspect_ai.solver import TaskState
 
-from portex_eval.providers import Provider, get_provider
+from portex_eval.grading import (
+    GRADING_INSTRUCTIONS,
+    GRADING_TEMPLATE,
+    criterion_grader_type,
+    criterion_prompt,
+    extract_final_answer,
+    grade_criterion_exact_match,
+    grade_criterion_with_providers as _grade_criterion_with_shared_providers,
+    load_answer_key,
+)
+from portex_eval.providers import ModelSpec, Provider, get_provider
 
 logger = logging.getLogger(__name__)
 
 
-@lru_cache(maxsize=4)
-def _default_criteria(task_id: str, answer: str) -> list[dict[str, Any]]:
-    return [
-        {
-            "id": f"{task_id}-c1",
-            "name": "",
-            "description": answer,
-            "type": "semantic",
-            "weight": 100,
-            "rationale": "",
-            "examples": [],
-            "semanticPrompt": answer,
-        }
-    ]
-
-
-def _load_answer_key(path: str) -> dict[str, dict[str, Any]]:
-    with open(path, encoding="utf-8") as handle:
-        data = json.load(handle)
-    answer_key: dict[str, dict[str, Any]] = {}
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        task_id = item.get("task_id")
-        answer = item.get("answer")
-        if not isinstance(task_id, str):
-            continue
-        if not isinstance(answer, str):
-            answer = ""
-        criteria = item.get("criteria")
-        if not isinstance(criteria, list) or not criteria:
-            item = {**item, "criteria": _default_criteria(task_id, answer)}
-        answer_key[task_id] = item
-    return answer_key
-
-
-def _criterion_prompt(criterion: dict[str, Any]) -> str:
-    return (
-        criterion.get("semanticPrompt")
-        or criterion.get("description")
-        or criterion.get("name")
-        or ""
-    )
-
-
 def _score_to_bool(score: Score) -> bool:
     return bool(str(score.value).upper() == CORRECT)
+
+
+_load_answer_key = load_answer_key
+_criterion_prompt = criterion_prompt
+_criterion_grader_type = criterion_grader_type
+_extract_final_answer = extract_final_answer
+_grade_criterion_exact_match = grade_criterion_exact_match
 
 
 def _ensure_model_role(model: Model, role: str) -> Model:
@@ -111,96 +80,23 @@ def _resolve_judge_models(
     return []
 
 
-def _resolve_judge_providers(model_strings: list[str]) -> dict[str, Provider]:
+def _resolve_judge_providers(model_specs: list[ModelSpec]) -> dict[str, Provider]:
     """Resolve judge model strings to Provider instances.
 
     For portex_eval provider mode with rate limit handling.
     """
     providers: dict[str, Provider] = {}
-    for model_string in model_strings:
-        providers[model_string] = get_provider(model_string)
+    for model_spec in model_specs:
+        provider = get_provider(model_spec)
+        providers[f"{provider.provider_id}:{provider.model_name}"] = provider
     return providers
 
 
-GRADING_TEMPLATE = """
-You are assessing a submitted answer on a given task based on a criterion. Here is the data:
-
-[BEGIN DATA]
-***
-[Task]: {question}
-***
-[Submission]: {answer}
-***
-[Criterion]: {criterion}
-***
-[END DATA]
-
-Does the submission meet the criterion?
-
-{instructions}
-"""
-
-GRADING_INSTRUCTIONS = """
-After assessing the submitted answer, reply with 'GRADE: $LETTER' (without quotes)
-where LETTER is one of CI. Please choose ONE option for the grade: either "C" for
-correct answers, or "I" for incorrect answers.
-
-For example, after reviewing a correct answer you might write 'GRADE: C' or after
-reviewing an incorrect answer you might write 'GRADE: I'.
-
-First, write out in a step by step manner your reasoning about the criterion to be
-sure that your conclusion is correct. Avoid simply stating the correct answers at
-the outset. Then, end with your answer formatted as 'GRADE: $LETTER' (without
-quotes) where LETTER is one of CI.
-"""
-
-
-def _format_grading_prompt(question: str, answer: str, criterion: str) -> str:
-    """Format the grading prompt for provider-based judging."""
-    return GRADING_TEMPLATE.format(
-        question=question,
-        answer=answer,
-        criterion=criterion,
-        instructions=GRADING_INSTRUCTIONS,
-    )
-
-
-def _parse_grade_from_response(response_text: str) -> tuple[bool, str]:
-    """Parse GRADE: C/I from judge response.
-
-    Returns:
-        Tuple of (passed, grade_letter).
-    """
-    match = re.search(r"GRADE:\s*([CI])", response_text, re.IGNORECASE)
-    if match:
-        grade = match.group(1).upper()
-        return grade == "C", grade
-    return False, "I"
-
-
-async def _grade_with_provider(
-    provider: Provider,
-    question: str,
-    answer: str,
-    criterion: str,
-    weight: float,
-) -> dict[str, Any]:
-    """Grade a criterion using a provider with rate limit handling."""
-    prompt = _format_grading_prompt(question, answer, criterion)
-    response = await provider.agenerate(prompt)
-    passed, grade = _parse_grade_from_response(response.text)
-    return {
-        "model": f"{provider.provider_id}:{provider.model_name}",
-        "grade": CORRECT if passed else INCORRECT,
-        "passed": passed,
-        "awarded": weight if passed else 0.0,
-        "explanation": response.text,
-    }
 
 
 @scorer(metrics=[accuracy(), stderr()])
 def portex_scorer(
-    model: list[str] | str | None = None,
+    model: list[ModelSpec] | ModelSpec | list[Model] | str | Model | None = None,
     answers_path: str | None = None,
     use_provider: bool = False,
 ) -> Scorer:
@@ -213,8 +109,8 @@ def portex_scorer(
 
     Args:
         model: Judge model(s). Can be:
-            - A single model string (e.g., 'openrouter:google/gemini-2.5-flash')
-            - A list of model strings for multi-judge scoring
+            - A single model string or config object
+            - A list of model strings/config objects for multi-judge scoring
             - An Inspect Model instance (if use_provider=False)
         answers_path: Path to answers.json file.
         use_provider: If True, use portex_eval.providers for judge calls.
@@ -233,14 +129,13 @@ def portex_scorer(
     if use_provider:
         if model is None:
             raise ValueError("model is required when use_provider=True")
-        model_list = [model] if isinstance(model, str) else model
-        if not all(isinstance(m, str) for m in model_list):
+        model_list = [model] if not isinstance(model, list | tuple) else list(model)
+        if any(isinstance(item, Model) for item in model_list):
             raise ValueError(
-                "All models must be strings when use_provider=True "
-                "(e.g., 'openrouter:google/gemini-2.5-flash')"
+                "Inspect Model instances are not supported when use_provider=True. "
+                "Use provider model strings or config objects instead."
             )
-        model_strings: list[str] = [m for m in model_list if isinstance(m, str)]
-        judge_providers = _resolve_judge_providers(model_strings)
+        judge_providers = _resolve_judge_providers(cast(list[ModelSpec], model_list))
     else:
         if isinstance(model, list | tuple):
             judge_models = _resolve_judge_models(model)
@@ -298,33 +193,18 @@ def portex_scorer(
 
         async def grade_criterion_with_providers(criterion: dict[str, Any]) -> dict[str, Any]:
             """Grade a criterion using provider-based judges."""
-            prompt = _criterion_prompt(criterion)
-            weight = float(criterion.get("weight", 0))
-
-            judge_tasks = [
-                _grade_with_provider(provider, question, submission, prompt, weight)
-                for provider in judge_providers.values()
-            ]
-            judge_results = await asyncio.gather(*judge_tasks)
-
-            passed_count = sum(1 for r in judge_results if r["passed"])
-            majority_passed = passed_count > len(judge_results) / 2
-            awarded = weight if majority_passed else 0.0
-
-            return {
-                "criterion_id": criterion.get("id"),
-                "name": criterion.get("name"),
-                "prompt": prompt,
-                "weight": weight,
-                "grade": CORRECT if majority_passed else INCORRECT,
-                "passed": majority_passed,
-                "awarded": awarded,
-                "explanation": f"Majority vote: {passed_count}/{len(judge_results)} judges passed",
-                "judges": list(judge_results),
-            }
+            return await _grade_criterion_with_shared_providers(
+                criterion,
+                question=question,
+                submission=submission,
+                judge_providers=judge_providers,
+            )
 
         async def grade_criterion_with_inspect(criterion: dict[str, Any]) -> dict[str, Any]:
             """Grade a criterion using Inspect's model_graded_qa."""
+            grader_type = _criterion_grader_type(criterion)
+            if grader_type == "ExactMatch":
+                return _grade_criterion_exact_match(criterion, submission)
             prompt = _criterion_prompt(criterion)
             weight = float(criterion.get("weight", 0))
 
@@ -364,6 +244,7 @@ def portex_scorer(
                 "criterion_id": criterion.get("id"),
                 "name": criterion.get("name"),
                 "prompt": prompt,
+                "grader_type": "llm-judge",
                 "weight": weight,
                 "grade": grade_value,
                 "passed": majority_passed,
@@ -427,7 +308,7 @@ def portex_scorer(
 
 @scorer(metrics=[accuracy(), stderr()])
 def provider_scorer(
-    judges: list[str],
+    judges: list[ModelSpec],
     answers_path: str | None = None,
 ) -> Scorer:
     """Scorer that uses portex_eval providers for multi-judge grading.
@@ -437,8 +318,7 @@ def provider_scorer(
     rate limit handling with exponential backoff.
 
     Args:
-        judges: List of judge model strings (e.g., ['openrouter:google/gemini-2.5-flash']).
-            Multi-judge scoring uses majority voting.
+        judges: List of judge model strings or config objects.
         answers_path: Path to answers.json file.
 
     Returns:

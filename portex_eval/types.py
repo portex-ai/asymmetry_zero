@@ -42,6 +42,18 @@ class Benchmark:
 
 
 @dataclass(frozen=True)
+class AgentEvalBundle:
+    """Generated Harbor task bundle for agentic evals."""
+
+    path: str
+    datasets_dir: str
+    task_count: int
+
+    def resolve_path(self) -> Path:
+        return Path(self.path).resolve()
+
+
+@dataclass(frozen=True)
 class ReportPaths:
     """Paths to CSV report artifacts from an evaluation run."""
 
@@ -68,6 +80,7 @@ class EvalResults:
     reports: ReportPaths | None = None
     rewards: Rewards = field(default_factory=Rewards)
     rewards_path: str = ""
+    training_data_path: str = ""
     run_id: str = ""
     output_dir: str = ""
 
@@ -86,6 +99,45 @@ class EvalResults:
             reports=reports,
             rewards=self.rewards,
             rewards_path=str(Path(self.rewards_path).resolve()) if self.rewards_path else "",
+            training_data_path=(
+                str(Path(self.training_data_path).resolve()) if self.training_data_path else ""
+            ),
+            run_id=self.run_id,
+            output_dir=str(Path(self.output_dir).resolve()) if self.output_dir else "",
+        )
+
+
+@dataclass(frozen=True)
+class AgentEvalResults:
+    """Results from a completed Harbor-backed agent evaluation run."""
+
+    datasets_dir: str = ""
+    jobs_dir: str = ""
+    reports: ReportPaths | None = None
+    rewards: Rewards = field(default_factory=Rewards)
+    rewards_path: str = ""
+    training_data_path: str = ""
+    run_id: str = ""
+    output_dir: str = ""
+
+    def with_absolute_paths(self) -> AgentEvalResults:
+        reports = self.reports
+        if reports is not None:
+            reports = ReportPaths(
+                eval_level=str(Path(reports.eval_level).resolve()),
+                task_level=str(Path(reports.task_level).resolve()),
+                criterion_level=str(Path(reports.criterion_level).resolve()),
+                judgement_level=str(Path(reports.judgement_level).resolve()),
+            )
+        return AgentEvalResults(
+            datasets_dir=str(Path(self.datasets_dir).resolve()) if self.datasets_dir else "",
+            jobs_dir=str(Path(self.jobs_dir).resolve()) if self.jobs_dir else "",
+            reports=reports,
+            rewards=self.rewards,
+            rewards_path=str(Path(self.rewards_path).resolve()) if self.rewards_path else "",
+            training_data_path=(
+                str(Path(self.training_data_path).resolve()) if self.training_data_path else ""
+            ),
             run_id=self.run_id,
             output_dir=str(Path(self.output_dir).resolve()) if self.output_dir else "",
         )

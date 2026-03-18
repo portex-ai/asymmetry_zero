@@ -213,4 +213,5 @@ docs/spec.md
 portex-bench/
 tmp/
 TODO.txt
-eval_runs/
+examples/jobs/
+examples/simple_bundle_agent/

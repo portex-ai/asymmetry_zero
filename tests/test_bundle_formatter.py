@@ -40,18 +40,32 @@ def sample_bundle(tmp_path: Path) -> Path:
     answers = [
         {
             "task_id": "task-1",
-            "answer": "Paris",
             "reference_file": "",
             "tools": [],
-            "criteria": [],
+            "criteria": [
+                {
+                    "id": "task-1-c1",
+                    "name": "Exact capital",
+                    "weight": 100,
+                    "grader_type": "ExactMatch",
+                    "semanticPrompt": "Paris",
+                }
+            ],
             "passThreshold": 100,
         },
         {
             "task_id": "task-2",
-            "answer": "4",
             "reference_file": "math.txt",
             "tools": [],
-            "criteria": [],
+            "criteria": [
+                {
+                    "id": "task-2-c1",
+                    "name": "Exact sum",
+                    "weight": 100,
+                    "grader_type": "ExactMatch",
+                    "semanticPrompt": "4",
+                }
+            ],
             "passThreshold": 100,
         },
     ]
@@ -86,7 +100,6 @@ def sample_bundle_v2(tmp_path: Path) -> Path:
     answers = [
         {
             "task_id": "task-1",
-            "answer": "Paris",
             "reference_file": "",
             "tools": [],
             "criteria": [
@@ -94,6 +107,7 @@ def sample_bundle_v2(tmp_path: Path) -> Path:
                     "id": "correctness",
                     "name": "Correctness",
                     "weight": 100,
+                    "grader_type": "llm-judge",
                     "semanticPrompt": "The answer is correct",
                 }
             ],
@@ -105,6 +119,36 @@ def sample_bundle_v2(tmp_path: Path) -> Path:
     (bundle_dir / "answers.json").write_text(json.dumps(answers), encoding="utf-8")
     (bundle_dir / "refs").mkdir()
 
+    return bundle_dir
+
+
+@pytest.fixture
+def answer_only_bundle(tmp_path: Path) -> Path:
+    """Create a bundle that requires criteria induction."""
+    bundle_dir = tmp_path / "answer_only_bundle"
+    bundle_dir.mkdir()
+
+    tasks = [
+        {
+            "task_id": "task-1",
+            "task_prompt": "What is the capital of France?",
+            "reference_file": "",
+        }
+    ]
+    answers = [
+        {
+            "task_id": "task-1",
+            "answer": "Paris",
+            "reference_file": "",
+            "tools": [],
+            "criteria": [],
+            "passThreshold": 100,
+        }
+    ]
+
+    (bundle_dir / "tasks.json").write_text(json.dumps(tasks), encoding="utf-8")
+    (bundle_dir / "answers.json").write_text(json.dumps(answers), encoding="utf-8")
+    (bundle_dir / "refs").mkdir()
     return bundle_dir
 
 
@@ -132,6 +176,8 @@ class TestFormatBundle:
         answers = json.loads(answers_path.read_text(encoding="utf-8"))
         assert len(answers) == 2
         assert answers[0]["task_id"] == "task-1"
+        assert "answer" not in answers[0]
+        assert answers[0]["criteria"][0]["grader_type"] == "ExactMatch"
 
     def test_format_bundle_copies_refs(self, sample_bundle: Path, tmp_path: Path) -> None:
         """Test that reference files are copied."""
@@ -191,7 +237,7 @@ class TestFormatBundle:
         (bundle_dir / "tasks.json").write_text('{"not": "a list"}', encoding="utf-8")
         (bundle_dir / "answers.json").write_text("[]", encoding="utf-8")
 
-        with pytest.raises(PortexEvalError, match="requires version=2"):
+        with pytest.raises(PortexEvalError, match="prompts must be a list"):
             format_bundle(bundle_dir, tmp_path / "output")
 
     def test_format_bundle_rejects_mismatched_task_ids(self, tmp_path: Path) -> None:
@@ -231,7 +277,7 @@ class TestCriteriaInduction:
         assert sum(c["weight"] for c in criteria) == 100
 
     def test_format_bundle_with_criteria_induction(
-        self, sample_bundle: Path, tmp_path: Path
+        self, answer_only_bundle: Path, tmp_path: Path
     ) -> None:
         """Test format_bundle with criteria induction enabled."""
         mock_response = MagicMock()
@@ -245,7 +291,7 @@ class TestCriteriaInduction:
         with patch("portex_eval.bundle.formatter.get_provider", return_value=mock_provider):
             output_dir = tmp_path / "output_bundle"
             result = format_bundle(
-                sample_bundle, output_dir, induce_criteria_flag=True, judge_model="mock:model"
+                answer_only_bundle, output_dir, induce_criteria_flag=True, judge_model="mock:model"
             )
 
         assert result.criteria_induced is True
@@ -254,6 +300,13 @@ class TestCriteriaInduction:
         answers = json.loads(answers_path.read_text(encoding="utf-8"))
         for answer in answers:
             assert len(answer["criteria"]) > 0
+            assert answer["criteria"][0]["grader_type"] == "llm-judge"
+
+    def test_format_bundle_rejects_missing_criteria_without_induction(
+        self, answer_only_bundle: Path, tmp_path: Path
+    ) -> None:
+        with pytest.raises(PortexEvalError, match="criteria must be a non-empty list"):
+            format_bundle(answer_only_bundle, tmp_path / "output_bundle")
 
 
 class TestParseCriteriaResponse:

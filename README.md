@@ -10,6 +10,7 @@
 - **Judge panel** - Multi-model evaluation with configurable judge models
 - **RL-ready outputs** - Task-level reward scores (`rl_rewards.txt`) for reward modeling
 - **Inspect integration** - Built on [Inspect AI](https://inspect.ai) for rich logging and analysis
+- **Harbor agent evals** - Generate Harbor tasks and run agentic evals from the same Portex bundle
 - **Bring your own benchmark** - Convert simple JSON to Portex bundle format
 
 ## Installation
@@ -28,18 +29,39 @@ uv sync
 uv run portex-eval --help
 ```
 
+This default `uv sync` installs the standard development stack only. Harbor is kept out of the default dev environment so Linux workflows do not fail on Harbor's heavier optional dependency chain.
+
 With pip:
 
 ```bash
 pip install portex-eval
 ```
 
-For full functionality including providers and Inspect integration:
+For full functionality including providers, Inspect, and Harbor:
 
 ```bash
 uv tool install 'portex-eval[all]'
 # or: pip install portex-eval[all]
 ```
+
+If you only need Harbor-backed agent evals in addition to the base package:
+
+```bash
+pip install 'portex-eval[harbor]'
+```
+
+From source with `uv`, install Harbor explicitly when you need agent evals:
+
+```bash
+uv sync --group harbor
+# or, to install the package extra as well:
+uv sync --extra harbor
+```
+
+`portex-eval` pins the Harbor stack to the same known-good versions used in `harbor-portex-bench`:
+
+- `harbor==0.1.42`
+- `claude-agent-sdk==0.1.36`
 
 ## Quick Start
 
@@ -49,13 +71,15 @@ uv tool install 'portex-eval[all]'
 from portex_eval import eval
 
 results = eval(
-    path="./mybenchmark",  # Directory with tasks.json, answers.json, refs/
+    path="./examples/simple_bundle",
     judges=[
         "openrouter:openai/gpt-4o",
         "openrouter:anthropic/claude-3.5-sonnet",
         "openrouter:google/gemini-2.5-flash",
     ],
     candidates=["openrouter:meta-llama/llama-3.3-70b-instruct"],
+    output_dir="/examples/jobs",
+
 )
 
 # Access results
@@ -79,6 +103,7 @@ results = eval(
         "openrouter:google/gemini-2.5-flash",
     ],
     candidates=["openrouter:meta-llama/llama-3.3-70b-instruct"],
+    max_samples=4,
 )
 ```
 
@@ -92,14 +117,90 @@ portex-eval format mybench.json
 # or from source: uv run portex-eval format mybench.json
 
 # Run an evaluation
-portex-eval run --bundle ./mybenchmark \
-    --judge openrouter/openai/gpt-4o \
-    --judge openrouter/anthropic/claude-3.5-sonnet \
-    --candidate openrouter/meta-llama/llama-3.3-70b-instruct
+portex-eval run \
+  --bundle examples/simple_bundle \
+  --judge openrouter:openai/gpt-4o-mini \
+  --judge openrouter:anthropic/claude-3.5-sonnet \
+  --judge openrouter:google/gemini-2.5-flash \
+  --candidate openrouter:openai/gpt-5.2 \
+  --output examples/jobs/simple_bundle
+
+# Mixed providers and a custom Modal/vLLM endpoint
+portex-eval run \
+  --bundle examples/simple_bundle \
+  --judge openrouter:openai/gpt-4o-mini \
+  --judge-config '{"provider":"anthropic","model":"claude-sonnet-4-5"}' \
+  --candidate-config '{"provider":"vllm","model":"Qwen/Qwen3-VL-4B-Instruct","base_url":"https://portex--qwen3-vl-4b-instruct-vllm-baseline-serve.modal.run/v1"}'
 
 # See all options
 portex-eval --help
 portex-eval run --help
+```
+
+### Agent Evals With Harbor
+
+Start from the same Portex bundle format, then generate Harbor tasks and run Harbor against them:
+
+```bash
+# Create Harbor task directories from a Portex bundle
+portex-eval agent-create \
+  --bundle examples/simple_bundle \
+  --output examples/simple_bundle_agent
+
+# Run Harbor on the generated tasks
+portex-eval agent-run   \
+    --tasks examples/simple_bundle_agent \
+    --judge openrouter:openai/gpt-4o-mini  \
+    --   \
+    --env modal   \
+    --agent terminus-2  \
+    --model openrouter/openai/gpt-5.4  \
+    --jobs-dir examples/jobs/simple_bundle_agent
+```
+
+`agent-run` writes Harbor jobs plus the same downstream artifacts as the Inspect path:
+
+- `reports/eval_level.csv`
+- `reports/task_level.csv`
+- `reports/criterion_level.csv`
+- `reports/judgement_level.csv`
+- `rl_rewards.json`
+- `rl_training_data.json`
+
+Programmatic mixed-provider runs can also use config objects:
+
+```python
+results = eval(
+    path="./mybenchmark",
+    judges=[
+        "openrouter:google/gemini-2.5-flash",
+        {"provider": "anthropic", "model": "claude-sonnet-4-5"},
+    ],
+    candidates=[
+        {
+            "provider": "vllm",
+            "model": "Qwen/Qwen3-VL-4B-Instruct",
+            "base_url": "https://portex--qwen3-vl-4b-instruct-vllm-baseline-serve.modal.run/v1",
+        }
+    ],
+)
+```
+
+Programmatic Harbor workflows are available too:
+
+```python
+from portex_eval import agent_eval, create_agent_eval
+
+bundle = create_agent_eval(
+    path="./examples/simple_bundle",
+    output_dir="./agent_eval_tasks/simple_bundle",
+)
+
+results = agent_eval(
+    task_root=bundle.path,
+    judges=["openrouter:openai/gpt-4o-mini"],
+    extra_args=["--model", "demo-agent"],
+)
 ```
 
 ### Analyzing results
@@ -139,7 +240,7 @@ A Portex bundle is a directory containing:
 ```
 mybenchmark/
 ├── tasks.json      # Task prompts with IDs
-├── answers.json    # Reference answers and grading criteria
+├── answers.json    # Grading criteria and verifier config
 └── refs/           # Optional reference files (images, etc.)
 ```
 
