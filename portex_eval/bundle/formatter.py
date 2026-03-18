@@ -17,6 +17,7 @@ from portex_eval.errors import PortexEvalError
 from portex_eval.providers import Provider, get_provider
 
 DEFAULT_CRITERIA_INDUCTION_MODEL = "openrouter:deepseek/deepseek-v3.1-terminus"
+ALLOWED_GRADER_TYPES = {"ExactMatch", "llm-judge"}
 
 CRITERIA_INDUCTION_PROMPT = """\
 You are an expert at creating evaluation criteria for AI assistant responses.
@@ -121,8 +122,7 @@ def format_bundle(
         provider = get_provider(judge_model)
         task_prompts = {task["task_id"]: task["task_prompt"] for task in tasks}
         answers = _induce_criteria_for_answers(answers, task_prompts, provider)
-    else:
-        answers = _fill_default_criteria_for_answers(answers)
+    answers = _ensure_answers_have_criteria(answers, input_path / "answers.json")
 
     _write_tasks_v2(output_dir / "tasks.json", tasks)
     _write_answers(output_dir / "answers.json", answers)
@@ -272,9 +272,9 @@ def _normalize_answers(data: Any, source_path: Path) -> list[dict[str, Any]]:
 
         if not isinstance(task_id, str) or not task_id.strip():
             raise PortexEvalError(f"answers.json entry {idx} missing task_id: {source_path}")
-        if not isinstance(answer, str):
+        if answer is not None and not isinstance(answer, str):
             raise PortexEvalError(
-                f"answers.json entry {idx} answer must be a string: {source_path}"
+                f"answers.json entry {idx} answer must be a string when provided: {source_path}"
             )
 
         criteria = record.get("criteria", [])
@@ -284,6 +284,14 @@ def _normalize_answers(data: Any, source_path: Path) -> list[dict[str, Any]]:
             raise PortexEvalError(
                 f"answers.json entry {idx} criteria must be a list: {source_path}"
             )
+        normalized_criteria = [
+            _normalize_criterion(
+                criterion,
+                context=f"answers.json entry {idx} criterion {criterion_idx}",
+                source_path=source_path,
+            )
+            for criterion_idx, criterion in enumerate(criteria)
+        ]
 
         answers.append(
             {
@@ -291,7 +299,7 @@ def _normalize_answers(data: Any, source_path: Path) -> list[dict[str, Any]]:
                 "answer": answer,
                 "reference_file": record.get("reference_file", ""),
                 "tools": record.get("tools", []),
-                "criteria": criteria,
+                "criteria": normalized_criteria,
                 "passThreshold": record.get("passThreshold", 100),
             }
         )
@@ -320,7 +328,10 @@ def _write_tasks_v2(path: Path, tasks: list[dict[str, Any]]) -> None:
 
 def _write_answers(path: Path, answers: list[dict[str, Any]]) -> None:
     """Write answers with criteria."""
-    _write_json(path, answers)
+    serialized_answers = []
+    for answer in answers:
+        serialized_answers.append({k: v for k, v in answer.items() if k != "answer"})
+    _write_json(path, serialized_answers)
 
 
 def _copy_refs(input_path: Path, output_dir: Path) -> None:
@@ -359,6 +370,10 @@ def _induce_criteria_for_answers(
         task_id = answer["task_id"]
         task_prompt = task_prompts.get(task_id, "")
         answer_text = answer["answer"]
+        if not isinstance(answer_text, str) or not answer_text.strip():
+            raise PortexEvalError(
+                f"answers.json entry for task_id '{task_id}' requires answer text to induce criteria"
+            )
 
         criteria = _induce_criteria_single(answer_text, task_prompt, provider)
 
@@ -369,41 +384,17 @@ def _induce_criteria_for_answers(
     return updated_answers
 
 
-def _default_criteria(task_id: str, answer: str) -> list[dict[str, Any]]:
-    return [
-        {
-            "id": f"{task_id}-c1",
-            "name": "",
-            "description": answer,
-            "type": "semantic",
-            "weight": 100,
-            "rationale": "",
-            "examples": [],
-            "semanticPrompt": answer,
-        }
-    ]
-
-
-def _fill_default_criteria_for_answers(
+def _ensure_answers_have_criteria(
     answers: list[dict[str, Any]],
+    source_path: Path,
 ) -> list[dict[str, Any]]:
-    """Fill empty criteria with a single answer-derived criterion."""
-    updated_answers: list[dict[str, Any]] = []
-
-    for answer in answers:
+    for idx, answer in enumerate(answers):
         criteria = answer.get("criteria", [])
-        if criteria:
-            updated_answers.append(answer)
-            continue
-
-        task_id = answer["task_id"]
-        answer_text = answer["answer"]
-
-        updated_answer = answer.copy()
-        updated_answer["criteria"] = _default_criteria(task_id, answer_text)
-        updated_answers.append(updated_answer)
-
-    return updated_answers
+        if not isinstance(criteria, list) or not criteria:
+            raise PortexEvalError(
+                f"answers.json entry {idx} criteria must be a non-empty list: {source_path}"
+            )
+    return answers
 
 
 def _induce_criteria_single(
@@ -419,6 +410,7 @@ def _induce_criteria_single(
 
     response = provider.generate(prompt, temperature=0.3, max_tokens=2000)
     criteria = _parse_criteria_response(response.text)
+    criteria = [{**criterion, "grader_type": criterion.get("grader_type", "llm-judge")} for criterion in criteria]
     criteria = _normalize_criteria_weights(criteria)
 
     return criteria
@@ -464,6 +456,41 @@ def _parse_criteria_response(response_text: str) -> list[dict[str, Any]]:
                 raise PortexEvalError(f"Criterion {idx} missing required field '{field}'")
 
     return criteria
+
+
+def _normalize_criterion(
+    criterion: Any,
+    *,
+    context: str,
+    source_path: Path,
+) -> dict[str, Any]:
+    if not isinstance(criterion, dict):
+        raise PortexEvalError(f"{context} must be an object: {source_path}")
+
+    criterion_id = criterion.get("id")
+    if not isinstance(criterion_id, str) or not criterion_id.strip():
+        raise PortexEvalError(f"{context} missing id: {source_path}")
+
+    weight = criterion.get("weight")
+    if not isinstance(weight, int | float):
+        raise PortexEvalError(f"{context} weight must be numeric: {source_path}")
+
+    grader_type = criterion.get("grader_type", "llm-judge")
+    if grader_type not in ALLOWED_GRADER_TYPES:
+        allowed = ", ".join(sorted(ALLOWED_GRADER_TYPES))
+        raise PortexEvalError(f"{context} grader_type must be one of {allowed}: {source_path}")
+
+    prompt_fields = [
+        criterion.get("semanticPrompt"),
+        criterion.get("description"),
+        criterion.get("name"),
+    ]
+    if not any(isinstance(field, str) and field.strip() for field in prompt_fields):
+        raise PortexEvalError(
+            f"{context} requires one of semanticPrompt, description, or name: {source_path}"
+        )
+
+    return {**criterion, "grader_type": grader_type}
 
 
 def _normalize_criteria_weights(criteria: list[dict[str, Any]]) -> list[dict[str, Any]]:

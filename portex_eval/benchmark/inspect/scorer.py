@@ -7,7 +7,6 @@ import json
 import logging
 import re
 from collections.abc import Awaitable, Callable, Iterable, Sequence
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
 
@@ -30,22 +29,10 @@ from portex_eval.providers import Provider, get_provider
 
 logger = logging.getLogger(__name__)
 
-
-@lru_cache(maxsize=4)
-def _default_criteria(task_id: str, answer: str) -> list[dict[str, Any]]:
-    return [
-        {
-            "id": f"{task_id}-c1",
-            "name": "",
-            "description": answer,
-            "type": "semantic",
-            "weight": 100,
-            "rationale": "",
-            "examples": [],
-            "semanticPrompt": answer,
-        }
-    ]
-
+EXACT_MATCH_ANSWER_RE = re.compile(
+    r"(?:^|\n)\s*(?:Final\s+)?Answer\s*:\s*(.+?)(?=\n|$)",
+    re.IGNORECASE | re.DOTALL,
+)
 
 def _load_answer_key(path: str) -> dict[str, dict[str, Any]]:
     with open(path, encoding="utf-8") as handle:
@@ -55,14 +42,11 @@ def _load_answer_key(path: str) -> dict[str, dict[str, Any]]:
         if not isinstance(item, dict):
             continue
         task_id = item.get("task_id")
-        answer = item.get("answer")
         if not isinstance(task_id, str):
             continue
-        if not isinstance(answer, str):
-            answer = ""
         criteria = item.get("criteria")
         if not isinstance(criteria, list) or not criteria:
-            item = {**item, "criteria": _default_criteria(task_id, answer)}
+            item = {**item, "criteria": []}
         answer_key[task_id] = item
     return answer_key
 
@@ -76,8 +60,62 @@ def _criterion_prompt(criterion: dict[str, Any]) -> str:
     )
 
 
+def _criterion_grader_type(criterion: dict[str, Any]) -> str:
+    return str(criterion.get("grader_type") or "llm-judge").strip()
+
+
 def _score_to_bool(score: Score) -> bool:
     return bool(str(score.value).upper() == CORRECT)
+
+
+def _normalize_for_compare(text: str) -> str:
+    if not text or not isinstance(text, str):
+        return ""
+    return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def _extract_final_answer(text: str) -> str:
+    if not text or not text.strip():
+        return ""
+    stripped = text.strip()
+    matches = list(EXACT_MATCH_ANSWER_RE.finditer(stripped))
+    if matches:
+        return matches[-1].group(1).strip()
+    lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+    if lines:
+        return lines[-1]
+    return stripped
+
+
+def _grade_criterion_exact_match(criterion: dict[str, Any], submission: str) -> dict[str, Any]:
+    prompt = _criterion_prompt(criterion)
+    weight = float(criterion.get("weight", 0))
+    extracted = _extract_final_answer(submission)
+    reference = _normalize_for_compare(prompt)
+    predicted = _normalize_for_compare(extracted)
+    passed = bool(reference and reference in predicted)
+    awarded = weight if passed else 0.0
+    explanation = f"Reference: {prompt!r} | Extracted: {extracted!r} (include)"
+    return {
+        "criterion_id": criterion.get("id"),
+        "name": criterion.get("name"),
+        "prompt": prompt,
+        "grader_type": "ExactMatch",
+        "weight": weight,
+        "grade": CORRECT if passed else INCORRECT,
+        "passed": passed,
+        "awarded": awarded,
+        "explanation": explanation,
+        "judges": [
+            {
+                "model": "ExactMatch",
+                "grade": "C" if passed else "I",
+                "passed": passed,
+                "awarded": awarded,
+                "explanation": explanation,
+            }
+        ],
+    }
 
 
 def _ensure_model_role(model: Model, role: str) -> Model:
@@ -298,6 +336,9 @@ def portex_scorer(
 
         async def grade_criterion_with_providers(criterion: dict[str, Any]) -> dict[str, Any]:
             """Grade a criterion using provider-based judges."""
+            grader_type = _criterion_grader_type(criterion)
+            if grader_type == "ExactMatch":
+                return _grade_criterion_exact_match(criterion, submission)
             prompt = _criterion_prompt(criterion)
             weight = float(criterion.get("weight", 0))
 
@@ -315,6 +356,7 @@ def portex_scorer(
                 "criterion_id": criterion.get("id"),
                 "name": criterion.get("name"),
                 "prompt": prompt,
+                "grader_type": "llm-judge",
                 "weight": weight,
                 "grade": CORRECT if majority_passed else INCORRECT,
                 "passed": majority_passed,
@@ -325,6 +367,9 @@ def portex_scorer(
 
         async def grade_criterion_with_inspect(criterion: dict[str, Any]) -> dict[str, Any]:
             """Grade a criterion using Inspect's model_graded_qa."""
+            grader_type = _criterion_grader_type(criterion)
+            if grader_type == "ExactMatch":
+                return _grade_criterion_exact_match(criterion, submission)
             prompt = _criterion_prompt(criterion)
             weight = float(criterion.get("weight", 0))
 
@@ -364,6 +409,7 @@ def portex_scorer(
                 "criterion_id": criterion.get("id"),
                 "name": criterion.get("name"),
                 "prompt": prompt,
+                "grader_type": "llm-judge",
                 "weight": weight,
                 "grade": grade_value,
                 "passed": majority_passed,

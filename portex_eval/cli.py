@@ -100,6 +100,14 @@ def run(
             help="Task specification override.",
         ),
     ] = None,
+    max_samples: Annotated[
+        int | None,
+        typer.Option(
+            "--max-samples",
+            help="Maximum number of bundle samples to run in parallel.",
+            min=1,
+        ),
+    ] = None,
     overwrite: Annotated[
         bool,
         typer.Option(
@@ -137,6 +145,7 @@ def run(
             candidates=list(candidates),
             output_dir=str(output_dir) if output_dir else None,
             task_spec=task_spec,
+            max_samples=max_samples,
             overwrite=overwrite,
         )
         typer.echo(f"Run ID: {result.run_id}")

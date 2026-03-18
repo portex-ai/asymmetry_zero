@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -19,8 +20,32 @@ from portex_eval import (
 
 def _write_benchmark_json(path: Path) -> None:
     payload = [
-        {"task": "Question 1", "answer": "Answer 1", "reference_file": ""},
-        {"task": "Question 2", "answer": "Answer 2", "reference_file": ""},
+        {
+            "task": "Question 1",
+            "reference_file": "",
+            "criteria": [
+                {
+                    "id": "q1-exact",
+                    "name": "Exact answer",
+                    "weight": 100,
+                    "grader_type": "ExactMatch",
+                    "semanticPrompt": "Answer 1",
+                }
+            ],
+        },
+        {
+            "task": "Question 2",
+            "reference_file": "",
+            "criteria": [
+                {
+                    "id": "q2-semantic",
+                    "name": "Semantic correctness",
+                    "weight": 100,
+                    "grader_type": "llm-judge",
+                    "semanticPrompt": "The answer should clearly say Answer 2.",
+                }
+            ],
+        },
     ]
     path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -40,6 +65,9 @@ def test_create_benchmark_creates_bundle() -> None:
         assert tasks["version"] == 2
         assert len(tasks["prompts"]) == 2
         assert len(answers) == 2
+        assert "answer" not in answers[0]
+        assert answers[0]["criteria"][0]["grader_type"] == "ExactMatch"
+        assert answers[1]["criteria"][0]["grader_type"] == "llm-judge"
 
 
 def test_create_benchmark_rejects_non_list() -> None:
@@ -48,6 +76,18 @@ def test_create_benchmark_rejects_non_list() -> None:
         input_path.write_text(json.dumps({"task": "oops"}), encoding="utf-8")
 
         with pytest.raises(PortexEvalError, match="must be a list"):
+            create_benchmark(str(input_path))
+
+
+def test_create_benchmark_rejects_missing_criteria() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        input_path = Path(tmpdir) / "bench.json"
+        input_path.write_text(
+            json.dumps([{"task": "Question 1", "reference_file": "", "criteria": []}]),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(PortexEvalError, match="criteria must be a non-empty list"):
             create_benchmark(str(input_path))
 
 
@@ -80,3 +120,51 @@ def test_eval_results_absolute_paths() -> None:
         output_dir="./runs/run-1",
     ).with_absolute_paths()
     assert results.output_dir.startswith("/")
+
+
+def test_eval_rejects_invalid_max_samples() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        bundle_dir = Path(tmpdir) / "bundle"
+        bundle_dir.mkdir()
+        (bundle_dir / "tasks.json").write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "prompts": [{"task_id": "task-1", "task_prompt": "Question 1", "reference_file": ""}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (bundle_dir / "answers.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "task_id": "task-1",
+                        "reference_file": "",
+                        "tools": [],
+                        "criteria": [
+                            {
+                                "id": "c1",
+                                "name": "Exact answer",
+                                "weight": 100,
+                                "grader_type": "ExactMatch",
+                                "semanticPrompt": "Answer 1",
+                            }
+                        ],
+                        "passThreshold": 100,
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        from portex_eval import eval as run_eval
+
+        with patch("portex_eval.benchmark.run.benchmark_one"):
+            with pytest.raises(PortexEvalError, match="max_samples must be at least 1"):
+                run_eval(
+                    path=str(bundle_dir),
+                    judges=["openrouter:openai/gpt-4o"],
+                    candidates=["openrouter:openai/gpt-4o-mini"],
+                    max_samples=0,
+                )

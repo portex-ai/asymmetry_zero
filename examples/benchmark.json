@@ -1,17 +1,71 @@
 [
   {
     "task": "What is the capital of France?",
-    "answer": "Paris",
+    "criteria": [
+      {
+        "id": "capital-exact",
+        "name": "Exact capital",
+        "weight": 100,
+        "grader_type": "ExactMatch",
+        "semanticPrompt": "Paris"
+      }
+    ],
     "reference_file": ""
   },
   {
-    "task": "In what year did World War II end?",
-    "answer": "1945",
-    "reference_file": ""
+    "task": "Solve the following problem and show your reasoning: A store sells notebooks for $3 each. If you buy 4 or more, you get a 25% discount on the total cost. How many books are in the referenced image and what is the total cost?",
+    "reference_file": "math-001.webp",
+    "criteria": [
+      {
+        "id": "math-001-c1",
+        "name": "correct-number-of-books",
+        "description": "Correct Number of Books",
+        "type": "semantic",
+        "grader_type": "llm-judge",
+        "weight": 30,
+        "rationale": "Correct Number of Books",
+        "examples": [],
+        "semanticPrompt": "response correctly identifies that 5 books are in the referenced image"
+      },
+      {
+        "id": "math-001-c2",
+        "name": "correct-answer",
+        "description": "Correct Final Answer",
+        "type": "semantic",
+        "grader_type": "llm-judge",
+        "weight": 30,
+        "rationale": "Correct Final Answer",
+        "examples": [],
+        "semanticPrompt": "response correctly identifies that the total cost is 11.25"
+      },
+      {
+        "id": "math-001-c3",
+        "name": "correct-answer",
+        "description": "Correct Identification of Discount Condition",
+        "type": "semantic",
+        "grader_type": "llm-judge",
+        "weight": 20,
+        "rationale": "Correct Identification of Discount Condition",
+        "examples": [],
+        "semanticPrompt": "The response must correctly identify wether the discount applies or not based on the number of books bought: 4 or more books = discount, less than 4 books = no discount"
+      },
+      { "id": "math-001-c4",
+        "name": "correct-answer",
+        "description": "Correct Arithmetic Operations",
+        "type": "semantic",
+        "grader_type": "llm-judge",
+        "weight": 20,
+        "rationale": "Correct Arithmetic Operations",
+        "examples": [],
+        "semanticPrompt": "Response includes the correct intermediate calculations: 1) if identifies 4 or more books, then number of books x 3 = total cost, 25% of total cost = discount, total cost - discount = final cost. If identifies less than 4 books, then number of books x 3 = total cost."
+      }
+    ],
+    "passThreshold": 60
   },
   {
     "task": "What is the chemical symbol for water?",
-    "answer": "H2O",
-    "reference_file": ""
+    "reference_file": "",
+    "criteria": [],
+    "passThreshold": 100
   }
 ]

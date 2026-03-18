@@ -4,7 +4,7 @@ This guide describes the structure and schema of Portex eval bundles.
 
 ## Overview
 
-A Portex bundle is a directory containing evaluation tasks, reference answers, and optional supporting files:
+A Portex bundle is a directory containing evaluation tasks, grading criteria, and optional supporting files:
 
 ```
 mybenchmark/
@@ -64,7 +64,7 @@ The `tasks.json` file defines the prompts to be evaluated.
 
 ## answers.json
 
-The `answers.json` file contains reference answers and grading criteria.
+The `answers.json` file contains grading criteria and verifier configuration.
 
 ### Schema
 
@@ -72,10 +72,17 @@ The `answers.json` file contains reference answers and grading criteria.
 [
   {
     "task_id": "unique-task-identifier",
-    "answer": "The expected reference answer",
     "reference_file": "",
     "tools": [],
-    "criteria": [],
+    "criteria": [
+      {
+        "id": "criterion-unique-id",
+        "name": "criterion-name",
+        "weight": 100,
+        "grader_type": "llm-judge",
+        "semanticPrompt": "Instruction for the verifier"
+      }
+    ],
     "passThreshold": 100
   }
 ]
@@ -86,10 +93,9 @@ The `answers.json` file contains reference answers and grading criteria.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `task_id` | string | Yes | Must match a task_id in tasks.json |
-| `answer` | string | Yes | The reference answer text |
 | `reference_file` | string | No | Path to reference file in `refs/` |
 | `tools` | array | No | Tool definitions (reserved for future use) |
-| `criteria` | array | No | Grading criteria for semantic evaluation |
+| `criteria` | array | Yes | One or more grading criteria |
 | `passThreshold` | integer | No | Minimum score (0-100) to pass. Default: `100` |
 
 ### Criteria Schema
@@ -103,6 +109,7 @@ Criteria enable fine-grained semantic grading:
   "description": "Human-readable description of this criterion",
   "type": "semantic",
   "weight": 50,
+  "grader_type": "llm-judge",
   "rationale": "Why this criterion matters",
   "examples": [],
   "semanticPrompt": "Instruction for the judge to evaluate this criterion"
@@ -113,12 +120,13 @@ Criteria enable fine-grained semantic grading:
 |-------|------|----------|-------------|
 | `id` | string | Yes | Unique identifier for the criterion |
 | `name` | string | Yes | Short name for the criterion |
-| `description` | string | Yes | Description of what this criterion evaluates |
+| `description` | string | No | Description of what this criterion evaluates |
 | `type` | string | Yes | Criterion type (currently `semantic`) |
 | `weight` | integer | Yes | Weight 0-100, criteria weights should sum to 100 |
+| `grader_type` | string | Yes | Either `ExactMatch` or `llm-judge` |
 | `rationale` | string | No | Explanation of why this criterion matters |
 | `examples` | array | No | Example responses for calibration |
-| `semanticPrompt` | string | Yes | Prompt given to judge for evaluation |
+| `semanticPrompt` | string | Recommended | Prompt or lookup value used by the verifier |
 
 ### Example with Criteria
 
@@ -126,7 +134,6 @@ Criteria enable fine-grained semantic grading:
 [
   {
     "task_id": "history-001",
-    "answer": "World War II ended in 1945 with the surrender of Germany in May and Japan in September.",
     "reference_file": "",
     "tools": [],
     "criteria": [
@@ -136,9 +143,10 @@ Criteria enable fine-grained semantic grading:
         "description": "States the correct year (1945).",
         "type": "semantic",
         "weight": 50,
+        "grader_type": "ExactMatch",
         "rationale": "The year is the core factual element.",
         "examples": [],
-        "semanticPrompt": "The response must state that World War II ended in 1945."
+        "semanticPrompt": "1945"
       },
       {
         "id": "history-001-c2",
@@ -146,6 +154,7 @@ Criteria enable fine-grained semantic grading:
         "description": "Mentions key surrender events.",
         "type": "semantic",
         "weight": 50,
+        "grader_type": "llm-judge",
         "rationale": "Additional context about how the war ended.",
         "examples": [],
         "semanticPrompt": "The response should mention the surrenders of Germany and/or Japan."
@@ -184,7 +193,15 @@ For quick prototyping, use the simplified "Bring Your Own Benchmark" JSON format
 [
   {
     "task": "What is the capital of France?",
-    "answer": "Paris",
+    "criteria": [
+      {
+        "id": "capital-exact",
+        "name": "Exact capital",
+        "weight": 100,
+        "grader_type": "ExactMatch",
+        "semanticPrompt": "Paris"
+      }
+    ],
     "reference_file": ""
   }
 ]
@@ -197,7 +214,7 @@ This is converted to the full bundle format with auto-generated task IDs and def
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `task` | string | Yes | The task prompt |
-| `answer` | string | Yes | The reference answer |
+| `criteria` | array | Yes | One or more grading criteria |
 | `reference_file` | string | No | Path to a reference file |
 
 ### Converting BYOB to Bundle
@@ -222,6 +239,8 @@ Bundles are validated when passed to `eval()`:
 2. Each task must have a non-empty `task_id` and `task_prompt`
 3. `answers.json` must be a list
 4. Each answer must reference a valid `task_id` from `tasks.json`
-5. Reference files must exist in the `refs/` directory
+5. Each answer entry must contain at least one criterion
+6. Each criterion must declare `grader_type` as `ExactMatch` or `llm-judge`
+7. Reference files must exist in the `refs/` directory
 
 Validation errors raise `PortexEvalError` with specific messages.

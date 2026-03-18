@@ -120,6 +120,26 @@ class TestSummarizeEvents:
         assert result["cost"] == pytest.approx(0.04)
 
 
+class TestFilterEvents:
+    """Tests for filtering event dataframes."""
+
+    def test_filter_events_handles_empty_frame_without_expected_columns(self) -> None:
+        empty_df = pd.DataFrame()
+        result = tables._filter_events(empty_df, "grader", ["ExactMatch"])
+        assert result.empty
+
+    def test_filter_events_falls_back_to_model_when_role_unavailable(self) -> None:
+        df = pd.DataFrame(
+            {
+                "model_event_model": ["judge-a", "judge-b"],
+                "model_event_role": [pd.NA, pd.NA],
+            }
+        )
+        result = tables._filter_events(df, "grader", ["judge-b"])
+        assert len(result) == 1
+        assert result.iloc[0]["model_event_model"] == "judge-b"
+
+
 class TestLoadFunction:
     """Tests for the load helper function."""
 

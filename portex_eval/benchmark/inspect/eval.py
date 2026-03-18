@@ -19,6 +19,10 @@ from portex_eval.benchmark.inspect.solver import candidate_generate, provider_ge
 
 SYSTEM_MESSAGE = """
 Complete the task to the best of your ability.
+
+After your reasoning, state your final answer clearly on a single line that starts
+with Answer: so it can be parsed automatically. Example:
+Answer: The capital of France is Paris.
 """
 
 DEFAULT_JUDGE_MODELS_INSPECT = [

@@ -79,6 +79,7 @@ results = eval(
         "openrouter:google/gemini-2.5-flash",
     ],
     candidates=["openrouter:meta-llama/llama-3.3-70b-instruct"],
+    max-samples=4
 )
 ```
 
@@ -92,10 +93,13 @@ portex-eval format mybench.json
 # or from source: uv run portex-eval format mybench.json
 
 # Run an evaluation
-portex-eval run --bundle ./mybenchmark \
-    --judge openrouter/openai/gpt-4o \
-    --judge openrouter/anthropic/claude-3.5-sonnet \
-    --candidate openrouter/meta-llama/llama-3.3-70b-instruct
+portex-eval run \
+  --bundle examples/simple_bundle \
+  --judge openrouter:openai/gpt-4o-mini \
+  --judge openrouter:anthropic/claude-3.5-sonnet \
+  --judge openrouter:google/gemini-2.5-flash \
+  --candidate openrouter:openai/gpt-5.2 \
+  --max-samples 4
 
 # See all options
 portex-eval --help
@@ -139,7 +143,7 @@ A Portex bundle is a directory containing:
 ```
 mybenchmark/
 ├── tasks.json      # Task prompts with IDs
-├── answers.json    # Reference answers and grading criteria
+├── answers.json    # Grading criteria and verifier config
 └── refs/           # Optional reference files (images, etc.)
 ```
 

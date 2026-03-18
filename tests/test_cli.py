@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
@@ -30,8 +31,30 @@ class TestFormatCommand:
             input_path.write_text(
                 json.dumps(
                     [
-                        {"task": "What is 2+2?", "answer": "4"},
-                        {"task": "What color is the sky?", "answer": "Blue"},
+                        {
+                            "task": "What is 2+2?",
+                            "criteria": [
+                                {
+                                    "id": "math-exact",
+                                    "name": "Exact answer",
+                                    "weight": 100,
+                                    "grader_type": "ExactMatch",
+                                    "semanticPrompt": "4",
+                                }
+                            ],
+                        },
+                        {
+                            "task": "What color is the sky?",
+                            "criteria": [
+                                {
+                                    "id": "sky-answer",
+                                    "name": "Expected answer",
+                                    "weight": 100,
+                                    "grader_type": "llm-judge",
+                                    "semanticPrompt": "The answer should say the sky is blue.",
+                                }
+                            ],
+                        },
                     ]
                 )
             )
@@ -42,7 +65,8 @@ class TestFormatCommand:
             assert "Created bundle at:" in result.output
             assert "Task count: 2" in result.output
 
-            output_dir = Path(tmpdir) / "benchmark"
+            created_path = result.output.split("Created bundle at: ", 1)[1].splitlines()[0].strip()
+            output_dir = Path(created_path)
             assert output_dir.is_dir()
             assert (output_dir / "tasks.json").is_file()
             assert (output_dir / "answers.json").is_file()
@@ -98,6 +122,36 @@ class TestRunCommand:
             )
             assert result.exit_code == 1
             assert "--candidate is required" in result.output
+
+    def test_run_passes_max_samples(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_result = MagicMock()
+            mock_result.run_id = "run-1"
+            mock_result.output_dir = "/tmp/out"
+            mock_result.logs = []
+            mock_result.reports = None
+            mock_result.rewards_path = ""
+            mock_result.rewards = MagicMock(task_ids=[])
+
+            with patch("portex_eval.cli.run_eval", return_value=mock_result) as mock_run_eval:
+                result = runner.invoke(
+                    app,
+                    [
+                        "run",
+                        "--bundle",
+                        tmpdir,
+                        "--judge",
+                        "openrouter:openai/gpt-4o",
+                        "--candidate",
+                        "openrouter:openai/gpt-4o-mini",
+                        "--max-samples",
+                        "4",
+                    ],
+                )
+
+            assert result.exit_code == 0
+            mock_run_eval.assert_called_once()
+            assert mock_run_eval.call_args.kwargs["max_samples"] == 4
 
 
 class TestMainHelp:

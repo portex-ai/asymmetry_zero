@@ -100,16 +100,34 @@ Create a simple JSON file with your tasks:
 [
   {
     "task": "What is the capital of France?",
-    "answer": "Paris",
+    "criteria": [
+      {
+        "id": "capital-exact",
+        "name": "Exact capital",
+        "weight": 100,
+        "grader_type": "ExactMatch",
+        "semanticPrompt": "Paris"
+      }
+    ],
     "reference_file": ""
   },
   {
     "task": "What is 2 + 2?",
-    "answer": "4",
+    "criteria": [
+      {
+        "id": "math-exact",
+        "name": "Exact answer",
+        "weight": 100,
+        "grader_type": "ExactMatch",
+        "semanticPrompt": "4"
+      }
+    ],
     "reference_file": ""
   }
 ]
 ```
+
+Each criterion must declare a `grader_type`. Use `ExactMatch` for deterministic final-answer checks and `llm-judge` for semantic jury grading.
 
 Convert and evaluate:
 

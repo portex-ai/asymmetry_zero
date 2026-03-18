@@ -155,9 +155,9 @@ def _filter_events(
     role: str,
     fallback_models: Iterable[str] | None = None,
 ) -> pd.DataFrame:
-    if events["model_event_role"].notna().any():
+    if "model_event_role" in events.columns and events["model_event_role"].notna().any():
         return events[events["model_event_role"] == role]
-    if fallback_models:
+    if fallback_models and "model_event_model" in events.columns:
         return events[events["model_event_model"].isin(list(fallback_models))]
     return events.iloc[0:0]
 
@@ -367,6 +367,7 @@ def _build_criterion_level(
                     "criterion_id": criterion.get("criterion_id"),
                     "criterion_name": criterion.get("name"),
                     "criterion_prompt": prompt,
+                    "grader_type": criterion.get("grader_type"),
                     "criteria_points": criterion.get("weight"),
                     "criteria_awarded": criterion.get("awarded"),
                     "criteria_passed": criterion.get("passed"),
@@ -425,6 +426,7 @@ def _build_judgement_level(
                         "criterion_id": criterion.get("criterion_id"),
                         "criterion_name": criterion.get("name"),
                         "criterion_prompt": criterion.get("prompt"),
+                        "grader_type": criterion.get("grader_type"),
                         "criteria_points": criterion.get("weight"),
                         "judge_name": judge.get("model"),
                         "judge_awarded": judge.get("awarded"),

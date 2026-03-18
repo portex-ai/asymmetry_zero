@@ -87,11 +87,23 @@ benchmark = create_benchmark("./mybench.json")
 
 #### Input Format
 
-The input JSON must be a list of objects with `task`, `answer`, and optional `reference_file`:
+The input JSON must be a list of objects with `task`, `criteria`, and optional `reference_file`:
 
 ```json
 [
-  {"task": "What is 2+2?", "answer": "4", "reference_file": ""}
+  {
+    "task": "What is 2+2?",
+    "criteria": [
+      {
+        "id": "math-exact",
+        "name": "Exact answer",
+        "weight": 100,
+        "grader_type": "ExactMatch",
+        "semanticPrompt": "4"
+      }
+    ],
+    "reference_file": ""
+  }
 ]
 ```
 

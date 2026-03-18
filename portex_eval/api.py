@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import uuid
 from pathlib import Path
 from typing import Any
@@ -13,6 +12,8 @@ from portex_eval.config import Config
 from portex_eval.errors import PortexEvalError
 from portex_eval.providers import get_provider, parse_model_string
 from portex_eval.types import Benchmark, EvalResults, ReportPaths, Rewards
+
+ALLOWED_GRADER_TYPES = {"ExactMatch", "llm-judge"}
 
 
 def create_benchmark(path: str) -> Benchmark:
@@ -52,15 +53,25 @@ def create_benchmark(path: str) -> Benchmark:
         if not isinstance(entry, dict):
             raise PortexEvalError(f"Task entry at index {idx} must be an object: {input_path}")
         task = entry.get("task")
-        answer = entry.get("answer")
+        criteria = entry.get("criteria")
         reference_file = entry.get("reference_file") or ""
+        tools = entry.get("tools", [])
+        pass_threshold = entry.get("passThreshold", 100)
 
         if not isinstance(task, str) or not task.strip():
             raise PortexEvalError(f"task is required for entry {idx}: {input_path}")
-        if not isinstance(answer, str):
-            raise PortexEvalError(f"answer must be a string for entry {idx}: {input_path}")
         if not isinstance(reference_file, str):
             raise PortexEvalError(f"reference_file must be a string for entry {idx}: {input_path}")
+        if not isinstance(tools, list):
+            raise PortexEvalError(f"tools must be a list for entry {idx}: {input_path}")
+        if not isinstance(pass_threshold, int | float):
+            raise PortexEvalError(f"passThreshold must be numeric for entry {idx}: {input_path}")
+
+        validated_criteria = _validate_criteria_list(
+            criteria,
+            context=f"benchmark entry {idx}",
+            source_path=input_path,
+        )
 
         task_id = str(uuid.uuid4())
         tasks.append(
@@ -73,11 +84,10 @@ def create_benchmark(path: str) -> Benchmark:
         answers.append(
             {
                 "task_id": task_id,
-                "answer": answer,
                 "reference_file": reference_file,
-                "tools": [],
-                "criteria": [],
-                "passThreshold": 100,
+                "tools": tools,
+                "criteria": validated_criteria,
+                "passThreshold": pass_threshold,
             }
         )
 
@@ -106,6 +116,7 @@ def eval(
     output_dir: str | None = None,
     config: Config | None = None,
     task_spec: str | None = None,
+    max_samples: int | None = None,
     overwrite: bool = False,
 ) -> EvalResults:
     """Run an evaluation benchmark and return results.
@@ -118,6 +129,7 @@ def eval(
         output_dir: Output directory for run results. Defaults to ./eval_runs/<run_id>/.
         config: Runtime configuration. Defaults to Config.from_env().
         task_spec: Task specification override.
+        max_samples: Maximum number of bundle samples to run in parallel.
         overwrite: If True, allow overwriting existing output directories.
             Defaults to False to prevent accidental data loss.
 
@@ -135,6 +147,8 @@ def eval(
         raise PortexEvalError("At least one judge model is required")
     if not candidates:
         raise PortexEvalError("At least one candidate model is required")
+    if max_samples is not None and max_samples < 1:
+        raise PortexEvalError("max_samples must be at least 1")
 
     if benchmark is None:
         if path is None:
@@ -175,6 +189,7 @@ def eval(
                 eval_runs_root=str(runs_root),
                 model_endpoint=candidate,
                 task_spec=task_spec,
+                max_samples=max_samples,
                 overwrite=overwrite,
             )
             eval_logs.append(result.eval_log)
@@ -307,14 +322,72 @@ def _validate_answers_json(answers_path: Path, task_ids: set[str]) -> None:
         if not isinstance(record, dict):
             raise PortexEvalError(f"answers.json entry {idx} must be an object: {answers_path}")
         task_id = record.get("task_id")
-        answer = record.get("answer")
         if not isinstance(task_id, str) or not task_id.strip():
             raise PortexEvalError(f"answers.json entry {idx} missing task_id: {answers_path}")
         if task_id not in task_ids:
             raise PortexEvalError(
                 f"answers.json entry {idx} references unknown task_id '{task_id}': {answers_path}"
             )
-        if not isinstance(answer, str):
-            raise PortexEvalError(
-                f"answers.json entry {idx} answer must be a string: {answers_path}"
+        _validate_criteria_list(
+            record.get("criteria"),
+            context=f"answers.json entry {idx}",
+            source_path=answers_path,
+        )
+
+
+def _validate_criteria_list(
+    criteria: Any,
+    *,
+    context: str,
+    source_path: Path,
+) -> list[dict[str, Any]]:
+    if not isinstance(criteria, list) or not criteria:
+        raise PortexEvalError(f"{context} criteria must be a non-empty list: {source_path}")
+
+    validated_criteria: list[dict[str, Any]] = []
+    for idx, criterion in enumerate(criteria):
+        validated_criteria.append(
+            _validate_criterion(
+                criterion,
+                context=f"{context} criterion {idx}",
+                source_path=source_path,
             )
+        )
+    return validated_criteria
+
+
+def _validate_criterion(
+    criterion: Any,
+    *,
+    context: str,
+    source_path: Path,
+) -> dict[str, Any]:
+    if not isinstance(criterion, dict):
+        raise PortexEvalError(f"{context} must be an object: {source_path}")
+
+    criterion_id = criterion.get("id")
+    if not isinstance(criterion_id, str) or not criterion_id.strip():
+        raise PortexEvalError(f"{context} missing id: {source_path}")
+
+    grader_type = criterion.get("grader_type")
+    if grader_type not in ALLOWED_GRADER_TYPES:
+        allowed = ", ".join(sorted(ALLOWED_GRADER_TYPES))
+        raise PortexEvalError(
+            f"{context} grader_type must be one of {allowed}: {source_path}"
+        )
+
+    weight = criterion.get("weight")
+    if not isinstance(weight, int | float):
+        raise PortexEvalError(f"{context} weight must be numeric: {source_path}")
+
+    prompt_fields = [
+        criterion.get("semanticPrompt"),
+        criterion.get("description"),
+        criterion.get("name"),
+    ]
+    if not any(isinstance(field, str) and field.strip() for field in prompt_fields):
+        raise PortexEvalError(
+            f"{context} requires one of semanticPrompt, description, or name: {source_path}"
+        )
+
+    return criterion

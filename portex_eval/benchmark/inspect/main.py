@@ -33,6 +33,7 @@ def run_inspect_eval(
     data_dir: str,
     model: str,
     task_spec: str,
+    max_samples: int | None = None,
     extra_env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     before = _list_files_recursive(log_dir)
@@ -52,6 +53,8 @@ def run_inspect_eval(
         "--log-dir",
         log_dir,
     ]
+    if max_samples is not None:
+        cmd.extend(["--max-samples", str(max_samples)])
 
     _run_inspect_eval(cmd, env=env)
 
@@ -86,6 +89,11 @@ def main() -> None:
         "--task-spec",
         default=os.getenv("TASK_SPEC", None),
     )
+    parser.add_argument(
+        "--max-samples",
+        type=int,
+        default=None,
+    )
     args = parser.parse_args()
 
     if not args.task_spec:
@@ -97,6 +105,7 @@ def main() -> None:
         data_dir=args.data_dir,
         model=args.model,
         task_spec=args.task_spec,
+        max_samples=args.max_samples,
     )
 
 
