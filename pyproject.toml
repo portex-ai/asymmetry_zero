@@ -42,15 +42,20 @@ providers = [
 inspect = [
     "inspect-ai>=0.3.0",
 ]
+harbor = [
+    "harbor; python_version >= '3.12'",
+]
 all = [
     "httpx>=0.25.0",
     "inspect-ai>=0.3.0",
+    "harbor; python_version >= '3.12'",
     "openai",
     "pyarrow",
 ]
 dev = [
     "httpx>=0.25.0",
     "inspect-ai>=0.3.0",
+    "harbor; python_version >= '3.12'",
     "pandas>=2.0",
     "pandas-stubs>=2.0",
     "python-dotenv>=1.0.0",
@@ -70,6 +75,7 @@ include = ["portex_eval*"]
 dev = [
     "httpx>=0.25.0",
     "inspect-ai>=0.3.0",
+    "harbor; python_version >= '3.12'",
     "pandas>=2.0",
     "pandas-stubs>=2.0",
     "python-dotenv>=1.0.0",

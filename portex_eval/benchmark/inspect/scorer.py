@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import re
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Any, cast
@@ -25,97 +23,30 @@ from inspect_ai.scorer import (
 )
 from inspect_ai.solver import TaskState
 
+from portex_eval.grading import (
+    GRADING_INSTRUCTIONS,
+    GRADING_TEMPLATE,
+    criterion_grader_type,
+    criterion_prompt,
+    extract_final_answer,
+    grade_criterion_exact_match,
+    grade_criterion_with_providers as _grade_criterion_with_shared_providers,
+    load_answer_key,
+)
 from portex_eval.providers import ModelSpec, Provider, get_provider
 
 logger = logging.getLogger(__name__)
-
-EXACT_MATCH_ANSWER_RE = re.compile(
-    r"(?:^|\n)\s*(?:Final\s+)?Answer\s*:\s*(.+?)(?=\n|$)",
-    re.IGNORECASE | re.DOTALL,
-)
-
-def _load_answer_key(path: str) -> dict[str, dict[str, Any]]:
-    with open(path, encoding="utf-8") as handle:
-        data = json.load(handle)
-    answer_key: dict[str, dict[str, Any]] = {}
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        task_id = item.get("task_id")
-        if not isinstance(task_id, str):
-            continue
-        criteria = item.get("criteria")
-        if not isinstance(criteria, list) or not criteria:
-            item = {**item, "criteria": []}
-        answer_key[task_id] = item
-    return answer_key
-
-
-def _criterion_prompt(criterion: dict[str, Any]) -> str:
-    return (
-        criterion.get("semanticPrompt")
-        or criterion.get("description")
-        or criterion.get("name")
-        or ""
-    )
-
-
-def _criterion_grader_type(criterion: dict[str, Any]) -> str:
-    return str(criterion.get("grader_type") or "llm-judge").strip()
 
 
 def _score_to_bool(score: Score) -> bool:
     return bool(str(score.value).upper() == CORRECT)
 
 
-def _normalize_for_compare(text: str) -> str:
-    if not text or not isinstance(text, str):
-        return ""
-    return re.sub(r"\s+", " ", text.strip().lower())
-
-
-def _extract_final_answer(text: str) -> str:
-    if not text or not text.strip():
-        return ""
-    stripped = text.strip()
-    matches = list(EXACT_MATCH_ANSWER_RE.finditer(stripped))
-    if matches:
-        return matches[-1].group(1).strip()
-    lines = [line.strip() for line in stripped.splitlines() if line.strip()]
-    if lines:
-        return lines[-1]
-    return stripped
-
-
-def _grade_criterion_exact_match(criterion: dict[str, Any], submission: str) -> dict[str, Any]:
-    prompt = _criterion_prompt(criterion)
-    weight = float(criterion.get("weight", 0))
-    extracted = _extract_final_answer(submission)
-    reference = _normalize_for_compare(prompt)
-    predicted = _normalize_for_compare(extracted)
-    passed = bool(reference and reference in predicted)
-    awarded = weight if passed else 0.0
-    explanation = f"Reference: {prompt!r} | Extracted: {extracted!r} (include)"
-    return {
-        "criterion_id": criterion.get("id"),
-        "name": criterion.get("name"),
-        "prompt": prompt,
-        "grader_type": "ExactMatch",
-        "weight": weight,
-        "grade": CORRECT if passed else INCORRECT,
-        "passed": passed,
-        "awarded": awarded,
-        "explanation": explanation,
-        "judges": [
-            {
-                "model": "ExactMatch",
-                "grade": "C" if passed else "I",
-                "passed": passed,
-                "awarded": awarded,
-                "explanation": explanation,
-            }
-        ],
-    }
+_load_answer_key = load_answer_key
+_criterion_prompt = criterion_prompt
+_criterion_grader_type = criterion_grader_type
+_extract_final_answer = extract_final_answer
+_grade_criterion_exact_match = grade_criterion_exact_match
 
 
 def _ensure_model_role(model: Model, role: str) -> Model:
@@ -161,80 +92,6 @@ def _resolve_judge_providers(model_specs: list[ModelSpec]) -> dict[str, Provider
     return providers
 
 
-GRADING_TEMPLATE = """
-You are assessing a submitted answer on a given task based on a criterion. Here is the data:
-
-[BEGIN DATA]
-***
-[Task]: {question}
-***
-[Submission]: {answer}
-***
-[Criterion]: {criterion}
-***
-[END DATA]
-
-Does the submission meet the criterion?
-
-{instructions}
-"""
-
-GRADING_INSTRUCTIONS = """
-After assessing the submitted answer, reply with 'GRADE: $LETTER' (without quotes)
-where LETTER is one of CI. Please choose ONE option for the grade: either "C" for
-correct answers, or "I" for incorrect answers.
-
-For example, after reviewing a correct answer you might write 'GRADE: C' or after
-reviewing an incorrect answer you might write 'GRADE: I'.
-
-First, write out in a step by step manner your reasoning about the criterion to be
-sure that your conclusion is correct. Avoid simply stating the correct answers at
-the outset. Then, end with your answer formatted as 'GRADE: $LETTER' (without
-quotes) where LETTER is one of CI.
-"""
-
-
-def _format_grading_prompt(question: str, answer: str, criterion: str) -> str:
-    """Format the grading prompt for provider-based judging."""
-    return GRADING_TEMPLATE.format(
-        question=question,
-        answer=answer,
-        criterion=criterion,
-        instructions=GRADING_INSTRUCTIONS,
-    )
-
-
-def _parse_grade_from_response(response_text: str) -> tuple[bool, str]:
-    """Parse GRADE: C/I from judge response.
-
-    Returns:
-        Tuple of (passed, grade_letter).
-    """
-    match = re.search(r"GRADE:\s*([CI])", response_text, re.IGNORECASE)
-    if match:
-        grade = match.group(1).upper()
-        return grade == "C", grade
-    return False, "I"
-
-
-async def _grade_with_provider(
-    provider: Provider,
-    question: str,
-    answer: str,
-    criterion: str,
-    weight: float,
-) -> dict[str, Any]:
-    """Grade a criterion using a provider with rate limit handling."""
-    prompt = _format_grading_prompt(question, answer, criterion)
-    response = await provider.agenerate(prompt)
-    passed, grade = _parse_grade_from_response(response.text)
-    return {
-        "model": f"{provider.provider_id}:{provider.model_name}",
-        "grade": CORRECT if passed else INCORRECT,
-        "passed": passed,
-        "awarded": weight if passed else 0.0,
-        "explanation": response.text,
-    }
 
 
 @scorer(metrics=[accuracy(), stderr()])
@@ -336,34 +193,12 @@ def portex_scorer(
 
         async def grade_criterion_with_providers(criterion: dict[str, Any]) -> dict[str, Any]:
             """Grade a criterion using provider-based judges."""
-            grader_type = _criterion_grader_type(criterion)
-            if grader_type == "ExactMatch":
-                return _grade_criterion_exact_match(criterion, submission)
-            prompt = _criterion_prompt(criterion)
-            weight = float(criterion.get("weight", 0))
-
-            judge_tasks = [
-                _grade_with_provider(provider, question, submission, prompt, weight)
-                for provider in judge_providers.values()
-            ]
-            judge_results = await asyncio.gather(*judge_tasks)
-
-            passed_count = sum(1 for r in judge_results if r["passed"])
-            majority_passed = passed_count > len(judge_results) / 2
-            awarded = weight if majority_passed else 0.0
-
-            return {
-                "criterion_id": criterion.get("id"),
-                "name": criterion.get("name"),
-                "prompt": prompt,
-                "grader_type": "llm-judge",
-                "weight": weight,
-                "grade": CORRECT if majority_passed else INCORRECT,
-                "passed": majority_passed,
-                "awarded": awarded,
-                "explanation": f"Majority vote: {passed_count}/{len(judge_results)} judges passed",
-                "judges": list(judge_results),
-            }
+            return await _grade_criterion_with_shared_providers(
+                criterion,
+                question=question,
+                submission=submission,
+                judge_providers=judge_providers,
+            )
 
         async def grade_criterion_with_inspect(criterion: dict[str, Any]) -> dict[str, Any]:
             """Grade a criterion using Inspect's model_graded_qa."""

@@ -197,3 +197,68 @@ class TestMainHelp:
         assert "Lightweight evaluation framework" in result.output
         assert "format" in result.output
         assert "run" in result.output
+        assert "agent-create" in result.output
+        assert "agent-run" in result.output
+
+
+class TestAgentCommands:
+    def test_agent_create_help(self) -> None:
+        result = runner.invoke(app, ["agent-create", "--help"])
+        assert result.exit_code == 0
+        assert "Convert a Portex bundle into Harbor task directories" in result.output
+
+    def test_agent_create_calls_api(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bundle_dir = Path(tmpdir) / "bundle"
+            bundle_dir.mkdir()
+
+            mock_result = MagicMock(path="/tmp/agent", datasets_dir="/tmp/agent/datasets", task_count=1)
+            with patch("portex_eval.cli.create_agent_eval", return_value=mock_result) as mock_create:
+                result = runner.invoke(
+                    app,
+                    [
+                        "agent-create",
+                        "--bundle",
+                        str(bundle_dir),
+                        "--output",
+                        str(Path(tmpdir) / "agent-out"),
+                    ],
+                )
+
+            assert result.exit_code == 0
+            mock_create.assert_called_once()
+            assert "Task root:" in result.output
+
+    def test_agent_run_calls_api(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_root = Path(tmpdir) / "agent"
+            task_root.mkdir()
+
+            mock_result = MagicMock()
+            mock_result.run_id = "run-1"
+            mock_result.output_dir = "/tmp/out"
+            mock_result.datasets_dir = "/tmp/out/datasets"
+            mock_result.jobs_dir = "/tmp/out/jobs/run-1"
+            mock_result.reports = None
+            mock_result.rewards_path = ""
+            mock_result.training_data_path = ""
+            mock_result.rewards = MagicMock(task_ids=[])
+
+            with patch("portex_eval.cli.run_agent_eval", return_value=mock_result) as mock_run:
+                result = runner.invoke(
+                    app,
+                    [
+                        "agent-run",
+                        "--tasks",
+                        str(task_root),
+                        "--judge",
+                        "openrouter:openai/gpt-4o-mini",
+                        "--",
+                        "--model",
+                        "demo-agent",
+                    ],
+                )
+
+            assert result.exit_code == 0
+            assert mock_run.call_args.kwargs["judges"] == ["openrouter:openai/gpt-4o-mini"]
+            assert mock_run.call_args.kwargs["extra_args"] == ["--model", "demo-agent"]

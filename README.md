@@ -10,6 +10,7 @@
 - **Judge panel** - Multi-model evaluation with configurable judge models
 - **RL-ready outputs** - Task-level reward scores (`rl_rewards.txt`) for reward modeling
 - **Inspect integration** - Built on [Inspect AI](https://inspect.ai) for rich logging and analysis
+- **Harbor agent evals** - Generate Harbor tasks and run agentic evals from the same Portex bundle
 - **Bring your own benchmark** - Convert simple JSON to Portex bundle format
 
 ## Installation
@@ -34,11 +35,17 @@ With pip:
 pip install portex-eval
 ```
 
-For full functionality including providers and Inspect integration:
+For full functionality including providers, Inspect, and Harbor:
 
 ```bash
 uv tool install 'portex-eval[all]'
 # or: pip install portex-eval[all]
+```
+
+If you only need Harbor-backed agent evals in addition to the base package:
+
+```bash
+pip install 'portex-eval[harbor]'
 ```
 
 ## Quick Start
@@ -112,6 +119,32 @@ portex-eval --help
 portex-eval run --help
 ```
 
+### Agent Evals With Harbor
+
+Start from the same Portex bundle format, then generate Harbor tasks and run Harbor against them:
+
+```bash
+# Create Harbor task directories from a Portex bundle
+portex-eval agent-create \
+  --bundle examples/simple_bundle \
+  --output ./agent_eval_tasks/simple_bundle
+
+# Run Harbor on the generated tasks
+portex-eval agent-run \
+  --tasks ./agent_eval_tasks/simple_bundle \
+  --judge openrouter:openai/gpt-4o-mini \
+  -- --model demo-agent
+```
+
+`agent-run` writes Harbor jobs plus the same downstream artifacts as the Inspect path:
+
+- `reports/eval_level.csv`
+- `reports/task_level.csv`
+- `reports/criterion_level.csv`
+- `reports/judgement_level.csv`
+- `rl_rewards.json`
+- `rl_training_data.json`
+
 Programmatic mixed-provider runs can also use config objects:
 
 ```python
@@ -128,6 +161,23 @@ results = eval(
             "base_url": "https://portex--qwen3-vl-4b-instruct-vllm-baseline-serve.modal.run/v1",
         }
     ],
+)
+```
+
+Programmatic Harbor workflows are available too:
+
+```python
+from portex_eval import agent_eval, create_agent_eval
+
+bundle = create_agent_eval(
+    path="./examples/simple_bundle",
+    output_dir="./agent_eval_tasks/simple_bundle",
+)
+
+results = agent_eval(
+    task_root=bundle.path,
+    judges=["openrouter:openai/gpt-4o-mini"],
+    extra_args=["--model", "demo-agent"],
 )
 ```
 

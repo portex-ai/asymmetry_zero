@@ -133,6 +133,66 @@ Creates a bundle directory adjacent to the input file:
 
 ---
 
+### create_agent_eval()
+
+Generate Harbor task directories from a Portex bundle.
+
+```python
+from portex_eval import create_agent_eval
+
+bundle = create_agent_eval(
+    path="./examples/simple_bundle",
+    output_dir="./agent_eval_tasks/simple_bundle",
+)
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `path` | `str` | One of path/benchmark | Path to the bundle directory |
+| `benchmark` | `Benchmark` | One of path/benchmark | Benchmark instance from `create_benchmark()` |
+| `output_dir` | `str` | Yes | Destination directory for generated Harbor tasks |
+| `overwrite` | `bool` | No | If True, replace an existing output directory |
+
+#### Returns
+
+`AgentEvalBundle` - Descriptor with the generated Harbor task root and `datasets/` directory.
+
+---
+
+### agent_eval()
+
+Run a Harbor-backed agent evaluation on generated Harbor task directories.
+
+```python
+from portex_eval import agent_eval
+
+results = agent_eval(
+    task_root="./agent_eval_tasks/simple_bundle",
+    judges=["openrouter:openai/gpt-4o-mini"],
+    extra_args=["--model", "demo-agent"],
+)
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_root` | `str` | Yes | Root directory created by `create_agent_eval()` |
+| `judges` | `list[str | dict]` | No | Judge model strings or config objects used by the Harbor verifier |
+| `output_dir` | `str` | No | Optional destination for a copied run workspace |
+| `n_concurrent` | `int` | No | Harbor task concurrency |
+| `env` | `str` | No | Harbor environment profile |
+| `extra_args` | `list[str]` | No | Extra CLI args forwarded to `harbor run` |
+| `overwrite` | `bool` | No | Allow overwriting an existing output directory |
+
+#### Returns
+
+`AgentEvalResults` - Results object with Harbor job paths, CSV reports, and RL artifacts.
+
+---
+
 ### load_run_spec()
 
 Load a RunSpec from a YAML file.
@@ -179,6 +239,20 @@ class Benchmark:
 
 ---
 
+### AgentEvalBundle
+
+Returned by `create_agent_eval()`.
+
+```python
+@dataclass(frozen=True)
+class AgentEvalBundle:
+    path: str
+    datasets_dir: str
+    task_count: int
+```
+
+---
+
 ### EvalResults
 
 Returned by `eval()`.
@@ -196,6 +270,24 @@ class EvalResults:
 #### Methods
 
 - `with_absolute_paths() -> EvalResults` - Return a copy with resolved absolute paths
+
+---
+
+### AgentEvalResults
+
+Returned by `agent_eval()`.
+
+```python
+@dataclass(frozen=True)
+class AgentEvalResults:
+    datasets_dir: str
+    jobs_dir: str
+    reports: ReportPaths | None
+    rewards_path: str
+    training_data_path: str
+    run_id: str
+    output_dir: str
+```
 
 ---
 

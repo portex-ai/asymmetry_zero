@@ -8,20 +8,24 @@ __version__ = "0.1.0"
 
 # Core re-exports - import after __version__ is defined
 from portex_eval import reporting as reports
-from portex_eval.api import create_benchmark, eval
+from portex_eval.api import agent_eval, create_agent_eval, create_benchmark, eval
 from portex_eval.config import Config
 from portex_eval.errors import PortexEvalError
 from portex_eval.run_spec import RunSpec, load_run_spec
-from portex_eval.types import Benchmark, EvalResults, ReportPaths
+from portex_eval.types import AgentEvalBundle, AgentEvalResults, Benchmark, EvalResults, ReportPaths
 
 __all__ = [
     "__version__",
     # API
+    "agent_eval",
+    "create_agent_eval",
     "create_benchmark",
     "eval",
     "format_bundle",
     "induce_criteria",
     # Types
+    "AgentEvalBundle",
+    "AgentEvalResults",
     "Benchmark",
     "EvalResults",
     "ReportPaths",

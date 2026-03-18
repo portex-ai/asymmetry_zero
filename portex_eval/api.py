@@ -9,6 +9,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from portex_eval.benchmark.harbor.adapter import create_agent_eval_bundle
+from portex_eval.benchmark.harbor.run import harbor_run_result_to_api, run_harbor_tasks
 from portex_eval.config import Config
 from portex_eval.errors import PortexEvalError
 from portex_eval.providers import (
@@ -18,7 +20,14 @@ from portex_eval.providers import (
     model_config_from_spec,
     model_config_to_dict,
 )
-from portex_eval.types import Benchmark, EvalResults, ReportPaths, Rewards
+from portex_eval.types import (
+    AgentEvalBundle,
+    AgentEvalResults,
+    Benchmark,
+    EvalResults,
+    ReportPaths,
+    Rewards,
+)
 
 ALLOWED_GRADER_TYPES = {"ExactMatch", "llm-judge"}
 
@@ -254,6 +263,87 @@ def eval(
         output_dir=last_output_dir,
     )
     return results.with_absolute_paths()
+
+
+def create_agent_eval(
+    *,
+    path: str | None = None,
+    benchmark: Benchmark | None = None,
+    output_dir: str,
+    overwrite: bool = False,
+) -> AgentEvalBundle:
+    """Generate Harbor task directories from a Portex bundle."""
+    bundle_path = _resolve_bundle_path(path=path, benchmark=benchmark)
+    task_ids = _validate_tasks_json(bundle_path / "tasks.json")
+    _validate_answers_json(bundle_path / "answers.json", task_ids)
+    try:
+        return create_agent_eval_bundle(
+            bundle_dir=str(bundle_path),
+            output_dir=output_dir,
+            overwrite=overwrite,
+        )
+    except ValueError as exc:
+        raise PortexEvalError(str(exc)) from exc
+
+
+def agent_eval(
+    *,
+    task_root: str,
+    judges: list[ModelSpec] | None = None,
+    output_dir: str | None = None,
+    n_concurrent: int | None = None,
+    env: str | None = None,
+    extra_args: list[str] | None = None,
+    overwrite: bool = False,
+) -> AgentEvalResults:
+    """Run a Harbor-backed agent evaluation on generated Harbor tasks."""
+    task_root_path = Path(task_root).expanduser().resolve()
+    if not task_root_path.is_dir():
+        raise PortexEvalError(f"Harbor task root not found: {task_root_path}")
+
+    judge_models = [_validate_model_spec(model, "judges") for model in (judges or [])]
+
+    run_root = task_root_path
+    if output_dir is not None:
+        run_root = Path(output_dir).expanduser().resolve()
+        if run_root != task_root_path:
+            if run_root.exists() and any(run_root.iterdir()) and not overwrite:
+                raise PortexEvalError(
+                    f"Output directory is not empty: {run_root}. Use overwrite=True to allow it."
+                )
+            if run_root.exists() and overwrite:
+                shutil.rmtree(run_root)
+            shutil.copytree(task_root_path, run_root, dirs_exist_ok=True)
+
+    try:
+        result = run_harbor_tasks(
+            task_root=str(run_root),
+            judges=[model_config_to_dict(model) for model in judge_models] if judge_models else None,
+            n_concurrent=n_concurrent,
+            env=env,
+            extra_args=extra_args,
+            overwrite=overwrite,
+        )
+    except ValueError as exc:
+        raise PortexEvalError(str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise PortexEvalError(str(exc)) from exc
+
+    return harbor_run_result_to_api(result)
+
+
+def _resolve_bundle_path(*, path: str | None, benchmark: Benchmark | None) -> Path:
+    if (path is None) == (benchmark is None):
+        raise PortexEvalError("Provide exactly one of path or benchmark")
+    if benchmark is None:
+        if path is None:
+            raise PortexEvalError("path is required when benchmark is not provided")
+        bundle_path = Path(path).expanduser().resolve()
+    else:
+        bundle_path = benchmark.resolve_path()
+    if not bundle_path.is_dir():
+        raise PortexEvalError(f"Bundle directory not found: {bundle_path}")
+    return bundle_path
 
 
 def _load_json(path: Path) -> Any:
