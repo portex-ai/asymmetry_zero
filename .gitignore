@@ -215,3 +215,7 @@ tmp/
 TODO.txt
 examples/jobs/
 examples/simple_bundle_agent/
+examples/simple_bundle_agents/
+examples/portex-composit/
+examples/portex-composit-agent/
+paper/

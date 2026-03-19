@@ -50,6 +50,7 @@ FALLBACK_CONTEXT_LIMIT = 128_000
 FALLBACK_OUTPUT_LIMIT = 8_192
 REFERENCE_FILE_PATH_RE = re.compile(r"Reference file path:\s*`([^`]+)`")
 ANSWER_PATH_RE = re.compile(r"Write your complete response .* to `([^`]+)`\.", re.DOTALL)
+NO_REFERENCE_SENTINELS = {"(none)", "none", "null", "n/a"}
 
 
 def _provider_spec(
@@ -529,7 +530,12 @@ class PortexMultimodalAgent(Terminus2):
         match = REFERENCE_FILE_PATH_RE.search(instruction)
         if not match:
             return None
-        return match.group(1).strip() or None
+        reference_path = match.group(1).strip()
+        if not reference_path:
+            return None
+        if reference_path.lower() in NO_REFERENCE_SENTINELS:
+            return None
+        return reference_path
 
     @staticmethod
     def _answer_path_from_instruction(instruction: str) -> str | None:

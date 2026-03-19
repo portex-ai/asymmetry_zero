@@ -12,6 +12,7 @@ from portex_eval.providers import ModelSpec, Provider, get_provider
 
 CORRECT = "C"
 INCORRECT = "I"
+MAX_CONCURRENT_CRITERIA_GRADING = 10
 
 EXACT_MATCH_ANSWER_RE = re.compile(
     r"(?:^|\n)\s*(?:Final\s+)?Answer\s*:\s*(.+?)(?=\n|$)",
@@ -150,7 +151,9 @@ def format_grading_prompt(question: str, answer: str, criterion: str) -> str:
     )
 
 
-def parse_grade_from_response(response_text: str) -> tuple[bool, str]:
+def parse_grade_from_response(response_text: Any) -> tuple[bool, str]:
+    if not isinstance(response_text, str):
+        return False, "I"
     match = re.search(r"GRADE:\s*([CI])", response_text, re.IGNORECASE)
     if match:
         grade = match.group(1).upper()
@@ -251,17 +254,18 @@ async def grade_criteria_with_providers(
     submission: str,
     judge_providers: dict[str, Provider],
 ) -> list[dict[str, Any]]:
-    return await asyncio.gather(
-        *[
-            grade_criterion_with_providers(
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_CRITERIA_GRADING)
+
+    async def _grade_with_cap(criterion: dict[str, Any]) -> dict[str, Any]:
+        async with semaphore:
+            return await grade_criterion_with_providers(
                 criterion,
                 question=question,
                 submission=submission,
                 judge_providers=judge_providers,
             )
-            for criterion in criteria
-        ]
-    )
+
+    return await asyncio.gather(*[_grade_with_cap(criterion) for criterion in criteria])
 
 
 def aggregate_scores(criteria_results: Iterable[dict[str, Any]]) -> float:

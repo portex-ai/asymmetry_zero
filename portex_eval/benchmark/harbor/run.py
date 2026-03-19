@@ -224,6 +224,7 @@ def _apply_judge_overrides(task_root: Path, judges: list[ModelSpec] | None, env:
 def run_harbor_tasks(
     *,
     task_root: str,
+    output_root: str | None = None,
     judges: list[ModelSpec] | None = None,
     n_concurrent: int | None = None,
     env: str | None = None,
@@ -245,9 +246,11 @@ def run_harbor_tasks(
     datasets_dir = root / "datasets"
     if not datasets_dir.is_dir():
         raise FileNotFoundError(f"Harbor datasets directory not found: {datasets_dir}")
+    results_root = Path(output_root).expanduser().resolve() if output_root else root
+    results_root.mkdir(parents=True, exist_ok=True)
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    jobs_dir = root / "jobs" / run_id
+    jobs_dir = results_root / "jobs" / run_id
     if jobs_dir.exists() and not overwrite:
         raise ValueError(
             f"Jobs directory already exists: {jobs_dir}. Use overwrite=True to allow overwriting."
@@ -288,7 +291,7 @@ def run_harbor_tasks(
 
     return HarborRunResult(
         run_id=run_id,
-        output_dir=str(root),
+        output_dir=str(results_root),
         datasets_dir=str(datasets_dir),
         jobs_dir=str(jobs_dir),
     )

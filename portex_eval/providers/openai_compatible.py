@@ -164,7 +164,8 @@ class OpenAICompatibleProvider(Provider):
         choices = data.get("choices", [])
         if not choices:
             raise ValueError("No choices in response")
-        text = choices[0].get("message", {}).get("content", "")
+        content = choices[0].get("message", {}).get("content")
+        text = content if isinstance(content, str) else ""
         usage = normalize_usage_dict(data.get("usage"))
         return Response(text=text, usage=usage, raw=data)
 

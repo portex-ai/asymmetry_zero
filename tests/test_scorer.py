@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+
+from portex_eval.grading import core as grading_core
 from portex_eval.benchmark.inspect.scorer import (
     _extract_final_answer,
     _grade_criterion_exact_match,
@@ -50,3 +53,45 @@ def test_grade_criterion_exact_match_fails_without_match() -> None:
     )
     assert result["passed"] is False
     assert result["awarded"] == 0
+
+
+def test_grade_criteria_with_providers_caps_concurrent_criteria() -> None:
+    criteria = [{"id": f"c{i}"} for i in range(25)]
+    state = {"current": 0, "peak": 0}
+
+    async def fake_grade(
+        criterion: dict[str, object],
+        *,
+        question: str,
+        submission: str,
+        judge_providers: dict[str, object],
+    ) -> dict[str, object]:
+        del criterion, question, submission, judge_providers
+        state["current"] += 1
+        state["peak"] = max(state["peak"], state["current"])
+        await asyncio.sleep(0.01)
+        state["current"] -= 1
+        return {"awarded": 0.0}
+
+    original = grading_core.grade_criterion_with_providers
+    grading_core.grade_criterion_with_providers = fake_grade
+    try:
+        asyncio.run(
+            grading_core.grade_criteria_with_providers(
+                criteria,
+                question="q",
+                submission="a",
+                judge_providers={},
+            )
+        )
+    finally:
+        grading_core.grade_criterion_with_providers = original
+
+    assert state["peak"] == grading_core.MAX_CONCURRENT_CRITERIA_GRADING
+
+
+def test_parse_grade_from_response_tolerates_none() -> None:
+    passed, grade = grading_core.parse_grade_from_response(None)
+
+    assert passed is False
+    assert grade == "I"

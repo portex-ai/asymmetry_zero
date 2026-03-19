@@ -302,12 +302,6 @@ def test_agent_eval_calls_harbor_runner() -> None:
         mock_result = AgentEvalResults(
             datasets_dir=str(task_root / "datasets"),
             jobs_dir=str(task_root / "jobs" / "run-1"),
-            reports=ReportPaths(
-                eval_level=str(task_root / "reports" / "eval_level.csv"),
-                task_level=str(task_root / "reports" / "task_level.csv"),
-                criterion_level=str(task_root / "reports" / "criterion_level.csv"),
-                judgement_level=str(task_root / "reports" / "judgement_level.csv"),
-            ),
             run_id="run-1",
             output_dir=str(task_root),
         )
@@ -325,4 +319,38 @@ def test_agent_eval_calls_harbor_runner() -> None:
             )
 
         assert mock_run.call_args.kwargs["judges"][0]["provider"] == "openai"
+        assert mock_run.call_args.kwargs["task_root"] == str(task_root)
+        assert mock_run.call_args.kwargs["output_root"] == str(task_root)
         assert result.run_id == "run-1"
+
+
+def test_agent_eval_uses_output_dir_without_copying_task_root() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        task_root = Path(tmpdir) / "agent"
+        output_root = Path(tmpdir) / "results"
+        (task_root / "datasets").mkdir(parents=True)
+        (task_root / "manifest.json").write_text("{}", encoding="utf-8")
+
+        mock_result = AgentEvalResults(
+            datasets_dir=str(task_root / "datasets"),
+            jobs_dir=str(output_root / "jobs" / "run-1"),
+            run_id="run-1",
+            output_dir=str(output_root),
+        )
+
+        with (
+            patch("portex_eval.api.run_harbor_tasks") as mock_run,
+            patch("portex_eval.api.harbor_run_result_to_api", return_value=mock_result),
+        ):
+            from portex_eval.api import agent_eval
+
+            result = agent_eval(
+                task_root=str(task_root),
+                output_dir=str(output_root),
+                judges=[{"provider": "openai", "model": "gpt-4o-mini"}],
+            )
+
+        assert mock_run.call_args.kwargs["task_root"] == str(task_root)
+        assert mock_run.call_args.kwargs["output_root"] == str(output_root)
+        assert not (output_root / "manifest.json").exists()
+        assert result.output_dir == str(output_root.resolve())

@@ -9,6 +9,7 @@ from portex_eval.providers import (
     get_provider,
     model_config_from_spec,
 )
+from portex_eval.providers.base import ModelConfig
 
 
 def test_model_config_from_spec_accepts_dict() -> None:
@@ -63,3 +64,22 @@ def test_get_provider_resolves_openai_compatible_alias() -> None:
     assert isinstance(provider, OpenAICompatibleProvider)
     assert provider.provider_id == "vllm"
     assert provider.model_name == "Qwen/Qwen3-VL-4B-Instruct"
+
+
+def test_openrouter_parse_response_coerces_none_content(monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    provider = get_provider("openrouter:openai/gpt-4o-mini")
+
+    response = provider._parse_response({"choices": [{"message": {"content": None}}]})  # type: ignore[attr-defined]
+
+    assert response.text == ""
+
+
+def test_openai_compatible_parse_response_coerces_none_content() -> None:
+    provider = OpenAICompatibleProvider(
+        ModelConfig(provider="custom", model="demo", base_url="https://example.com/v1")
+    )
+
+    response = provider._parse_response({"choices": [{"message": {"content": None}}]})  # type: ignore[attr-defined]
+
+    assert response.text == ""

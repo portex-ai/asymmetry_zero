@@ -303,21 +303,22 @@ def agent_eval(
 
     judge_models = [_validate_model_spec(model, "judges") for model in (judges or [])]
 
-    run_root = task_root_path
+    run_root = Path(output_dir).expanduser().resolve() if output_dir is not None else task_root_path
     if output_dir is not None:
-        run_root = Path(output_dir).expanduser().resolve()
-        if run_root != task_root_path:
-            if run_root.exists() and any(run_root.iterdir()) and not overwrite:
-                raise PortexEvalError(
-                    f"Output directory is not empty: {run_root}. Use overwrite=True to allow it."
-                )
-            if run_root.exists() and overwrite:
-                shutil.rmtree(run_root)
-            shutil.copytree(task_root_path, run_root, dirs_exist_ok=True)
+        if run_root.exists() and not run_root.is_dir():
+            raise PortexEvalError(f"Output path is not a directory: {run_root}")
+        if run_root.exists() and any(run_root.iterdir()) and not overwrite:
+            raise PortexEvalError(
+                f"Output directory is not empty: {run_root}. Use overwrite=True to allow it."
+            )
+        if run_root.exists() and overwrite:
+            shutil.rmtree(run_root)
+        run_root.mkdir(parents=True, exist_ok=True)
 
     try:
         result = run_harbor_tasks(
-            task_root=str(run_root),
+            task_root=str(task_root_path),
+            output_root=str(run_root),
             judges=[model_config_to_dict(model) for model in judge_models] if judge_models else None,
             n_concurrent=n_concurrent,
             env=env,

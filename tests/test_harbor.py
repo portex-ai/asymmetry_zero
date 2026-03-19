@@ -138,6 +138,26 @@ def test_run_harbor_tasks_builds_command_and_env() -> None:
         assert result.jobs_dir
 
 
+def test_run_harbor_tasks_writes_jobs_to_separate_output_root() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        task_root = Path(tmpdir) / "tasks"
+        output_root = Path(tmpdir) / "results"
+        (task_root / "datasets").mkdir(parents=True)
+
+        with (
+            patch("importlib.util.find_spec", return_value=object()),
+            patch("subprocess.run"),
+        ):
+            result = run_harbor_tasks(
+                task_root=str(task_root),
+                output_root=str(output_root),
+            )
+
+        assert result.datasets_dir == str((task_root / "datasets").resolve())
+        assert result.output_dir == str(output_root.resolve())
+        assert Path(result.jobs_dir).parent == output_root.resolve() / "jobs"
+
+
 def test_run_harbor_tasks_rewrites_portex_multimodal_agent_alias() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         task_root = Path(tmpdir)
@@ -418,6 +438,28 @@ def test_portex_multimodal_agent_builds_first_turn_image_message(tmp_path: Path)
     assert "attached separately" in first_user_shadow
     assert reference_meta is not None
     assert reference_meta["mode"] == "image"
+
+
+def test_portex_multimodal_agent_skips_missing_reference_placeholder(tmp_path: Path) -> None:
+    fake_provider = _FakeProvider()
+    fake_environment = _FakeEnvironment(task_config={}, refs={})
+    with patch("portex_eval.benchmark.harbor.agent.get_provider", return_value=fake_provider):
+        agent = PortexMultimodalAgent(
+            logs_dir=tmp_path / "logs",
+            model_name="openrouter/google/gemini-3.1-pro-preview",
+        )
+        first_user_content, first_user_shadow, reference_meta = asyncio.run(
+            agent._build_initial_user_message(
+                environment=fake_environment,
+                instruction="Solve it.\n\nReference file path: `(none)`\n",
+                initial_prompt="Solve the task from the terminal.",
+                temp_root=tmp_path,
+            )
+        )
+
+    assert first_user_content == [{"type": "text", "text": "Solve the task from the terminal."}]
+    assert first_user_shadow == "Solve the task from the terminal."
+    assert reference_meta is None
 
 
 def test_portex_multimodal_chat_uses_multimodal_first_turn_and_stores_shadow() -> None:

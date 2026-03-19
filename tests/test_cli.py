@@ -262,3 +262,121 @@ class TestAgentCommands:
             assert result.exit_code == 0
             assert mock_run.call_args.kwargs["judges"] == ["openrouter:openai/gpt-4o-mini"]
             assert mock_run.call_args.kwargs["extra_args"] == ["--model", "demo-agent"]
+
+    def test_agent_run_loads_yaml_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            task_root = tmp_path / "agent"
+            task_root.mkdir()
+            config_path = tmp_path / "run_spec.yaml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "schema_version: 1",
+                        f"tasks: {task_root.name}",
+                        "output: jobs",
+                        "judges:",
+                        "  - openrouter:openai/gpt-4o-mini",
+                        "n_concurrent: 4",
+                        "env: modal",
+                        "overwrite: false",
+                        "harbor_args:",
+                        "  - --agent",
+                        "  - portex-multimodal",
+                        "  - --model",
+                        "  - demo-agent",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            mock_result = MagicMock()
+            mock_result.run_id = "run-1"
+            mock_result.output_dir = "/tmp/out"
+            mock_result.datasets_dir = "/tmp/out/datasets"
+            mock_result.jobs_dir = "/tmp/out/jobs/run-1"
+
+            with patch("portex_eval.cli.run_agent_eval", return_value=mock_result) as mock_run:
+                result = runner.invoke(
+                    app,
+                    ["agent-run", "--config", str(config_path)],
+                )
+
+            assert result.exit_code == 0
+            assert mock_run.call_args.kwargs["task_root"] == str(task_root.resolve())
+            assert mock_run.call_args.kwargs["output_dir"] == str((tmp_path / "jobs").resolve())
+            assert mock_run.call_args.kwargs["judges"] == ["openrouter:openai/gpt-4o-mini"]
+            assert mock_run.call_args.kwargs["n_concurrent"] == 4
+            assert mock_run.call_args.kwargs["env"] == "modal"
+            assert mock_run.call_args.kwargs["overwrite"] is False
+            assert mock_run.call_args.kwargs["extra_args"] == [
+                "--agent",
+                "portex-multimodal",
+                "--model",
+                "demo-agent",
+            ]
+
+    def test_agent_run_cli_overrides_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            task_root = tmp_path / "agent"
+            task_root.mkdir()
+            override_root = tmp_path / "override-agent"
+            override_root.mkdir()
+            config_path = tmp_path / "run_spec.yaml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "schema_version: 1",
+                        f"tasks: {task_root.name}",
+                        "judges:",
+                        "  - openrouter:openai/gpt-4o-mini",
+                        "env: modal",
+                        "harbor_args:",
+                        "  - --model",
+                        "  - from-config",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            mock_result = MagicMock()
+            mock_result.run_id = "run-1"
+            mock_result.output_dir = "/tmp/out"
+            mock_result.datasets_dir = "/tmp/out/datasets"
+            mock_result.jobs_dir = "/tmp/out/jobs/run-1"
+
+            with patch("portex_eval.cli.run_agent_eval", return_value=mock_result) as mock_run:
+                result = runner.invoke(
+                    app,
+                    [
+                        "agent-run",
+                        "--config",
+                        str(config_path),
+                        "--tasks",
+                        str(override_root),
+                        "--judge",
+                        "openrouter:google/gemini-2.5-flash",
+                        "--env",
+                        "docker",
+                        "--overwrite",
+                        "--",
+                        "--model",
+                        "from-cli",
+                    ],
+                )
+
+            assert result.exit_code == 0
+            assert mock_run.call_args.kwargs["task_root"] == str(override_root)
+            assert mock_run.call_args.kwargs["judges"] == [
+                "openrouter:openai/gpt-4o-mini",
+                "openrouter:google/gemini-2.5-flash",
+            ]
+            assert mock_run.call_args.kwargs["env"] == "docker"
+            assert mock_run.call_args.kwargs["overwrite"] is True
+            assert mock_run.call_args.kwargs["extra_args"] == [
+                "--model",
+                "from-config",
+                "--model",
+                "from-cli",
+            ]

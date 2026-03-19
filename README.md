@@ -174,6 +174,12 @@ portex-eval agent-run \
   --ak max_turns=10
 ```
 
+You can also place the `agent-run` options in a YAML file and pass them with `--config`:
+
+```bash
+portex-eval agent-run --config examples/simple_bundle_agent/run_spec.yaml
+```
+
 Generated Harbor task instructions now include the exact `/app/refs/...` path, and
 `agent-run` automatically injects known `model_info` metadata for supported custom vision
 models when Harbor/LiteLLM needs it.
