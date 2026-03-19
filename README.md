@@ -158,14 +158,28 @@ portex-eval agent-run   \
     --jobs-dir examples/jobs/simple_bundle_agent
 ```
 
-`agent-run` writes Harbor jobs plus the same downstream artifacts as the Inspect path:
+For image-heavy tasks where we want a `terminus-2`-style Harbor agent to receive the
+reference image directly on its first model turn instead of discovering it through shell
+tools, use the built-in Portex multimodal Harbor agent:
 
-- `reports/eval_level.csv`
-- `reports/task_level.csv`
-- `reports/criterion_level.csv`
-- `reports/judgement_level.csv`
-- `rl_rewards.json`
-- `rl_training_data.json`
+```bash
+portex-eval agent-run \
+  --tasks examples/simple_bundle_img_agent \
+  --judge openrouter:google/gemini-2.5-flash \
+  -- \
+  --env modal \
+  --agent portex-multimodal \
+  --model openrouter/google/gemini-3.1-pro-preview \
+  --jobs-dir examples/jobs/simple_bundle_img_agent \
+  --ak max_turns=10
+```
+
+Generated Harbor task instructions now include the exact `/app/refs/...` path, and
+`agent-run` automatically injects known `model_info` metadata for supported custom vision
+models when Harbor/LiteLLM needs it.
+
+`agent-run` writes Harbor datasets and job outputs only. It does not generate the
+Inspect-specific `reports/` CSVs or RL training artifacts.
 
 Programmatic mixed-provider runs can also use config objects:
 

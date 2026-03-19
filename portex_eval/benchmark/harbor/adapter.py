@@ -114,8 +114,6 @@ def _write_task_toml(task: PortexTaskRecord, path: Path) -> None:
     lines.append("")
     lines.append("[verifier.env]")
     lines.append('OPENROUTER_API_KEY = "${OPENROUTER_API_KEY}"')
-    lines.append('PORTEX_JUDGE_MODELS = "${PORTEX_JUDGE_MODELS}"')
-    lines.append('PORTEX_JUDGE_CONFIGS = "${PORTEX_JUDGE_CONFIGS}"')
 
     lines.append("")
     lines.append("[agent]")
@@ -167,8 +165,12 @@ def _prepare_task(bundle_dir: Path, task: PortexTaskRecord, output_dir: Path) ->
     _write_task_toml(task, output_dir / "task.toml")
 
     instruction = (TEMPLATE_DIR / "instruction.md").read_text(encoding="utf-8")
+    reference_file_path = f"/app/refs/{task.reference_file}" if task.reference_file else "(none)"
     (output_dir / "instruction.md").write_text(
-        instruction.replace("{task_prompt}", task.task_prompt),
+        instruction.replace("{task_prompt}", task.task_prompt).replace(
+            "{reference_file_path}",
+            reference_file_path,
+        ),
         encoding="utf-8",
     )
 

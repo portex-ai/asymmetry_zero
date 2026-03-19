@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import tempfile
 from pathlib import Path
@@ -9,9 +10,15 @@ from unittest.mock import patch
 
 import pytest
 
+from harbor.llms.base import LLMResponse
+
+from portex_eval.benchmark.harbor.agent import PortexMultimodalAgent, PortexMultimodalChat
 from portex_eval.benchmark.harbor.adapter import create_agent_eval_bundle
 from portex_eval.benchmark.harbor.results import write_harbor_artifacts
-from portex_eval.benchmark.harbor.run import run_harbor_tasks
+from portex_eval.benchmark.harbor.run import (
+    PORTEX_MULTIMODAL_AGENT_IMPORT_PATH,
+    run_harbor_tasks,
+)
 
 
 def _write_bundle(bundle_dir: Path) -> None:
@@ -78,31 +85,32 @@ def test_create_agent_eval_bundle_generates_harbor_task_dirs() -> None:
 
         task_config = json.loads((task_dir / "tests" / "task_config.json").read_text(encoding="utf-8"))
         task_toml = (task_dir / "task.toml").read_text(encoding="utf-8")
+        instruction = (task_dir / "instruction.md").read_text(encoding="utf-8")
         assert task_config["task_id"] == "task-1"
         assert task_config["reference_file"] == "diagram.txt"
         assert task_config["judge_models"]
         assert 'OPENROUTER_API_KEY = "${OPENROUTER_API_KEY}"' in task_toml
+        assert "PORTEX_JUDGE_MODELS" not in task_toml
+        assert "PORTEX_JUDGE_CONFIGS" not in task_toml
         assert "OPENAI_API_KEY" not in task_toml
         assert "ANTHROPIC_API_KEY" not in task_toml
+        assert "Reference file path: `/app/refs/diagram.txt`" in instruction
 
 
 def test_run_harbor_tasks_builds_command_and_env() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         task_root = Path(tmpdir)
-        (task_root / "datasets").mkdir()
+        dataset_dir = task_root / "datasets" / "portex_task-1" / "tests"
+        dataset_dir.mkdir(parents=True)
+        (task_root / "datasets" / "portex_task-1" / "task.toml").write_text(
+            '[verifier.env]\nOPENROUTER_API_KEY = "${OPENROUTER_API_KEY}"\nPORTEX_JUDGE_MODELS = "${PORTEX_JUDGE_MODELS}"\nPORTEX_JUDGE_CONFIGS = "${PORTEX_JUDGE_CONFIGS}"\n',
+            encoding="utf-8",
+        )
+        (dataset_dir / "task_config.json").write_text("{}", encoding="utf-8")
 
         with (
             patch("importlib.util.find_spec", return_value=object()),
             patch("subprocess.run") as mock_subprocess,
-            patch(
-                "portex_eval.benchmark.harbor.results.write_harbor_artifacts",
-                return_value=(
-                    ("eval.csv", "task.csv", "criterion.csv", "judgement.csv"),
-                    type("RewardsPayload", (), {"task_ids": ["task-1"], "reward": [100.0]})(),
-                    "rl_rewards.json",
-                    "rl_training_data.json",
-                ),
-            ) as mock_artifacts,
         ):
             result = run_harbor_tasks(
                 task_root=str(task_root),
@@ -119,8 +127,77 @@ def test_run_harbor_tasks_builds_command_and_env() -> None:
         assert "--env" in cmd
         assert env["PORTEX_JUDGE_MODELS"] == "openai:gpt-4o-mini"
         assert "PORTEX_JUDGE_CONFIGS" in env
-        assert result.reports.eval_level == "eval.csv"
-        mock_artifacts.assert_called_once()
+        rewritten_toml = (task_root / "datasets" / "portex_task-1" / "task.toml").read_text(
+            encoding="utf-8"
+        )
+        updated_task_config = json.loads((dataset_dir / "task_config.json").read_text(encoding="utf-8"))
+        assert "PORTEX_JUDGE_MODELS" not in rewritten_toml
+        assert "PORTEX_JUDGE_CONFIGS" not in rewritten_toml
+        assert updated_task_config["judge_models"] == ["openai:gpt-4o-mini"]
+        assert updated_task_config["judge_configs"][0]["provider"] == "openai"
+        assert result.jobs_dir
+
+
+def test_run_harbor_tasks_rewrites_portex_multimodal_agent_alias() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        task_root = Path(tmpdir)
+        (task_root / "datasets").mkdir()
+
+        with (
+            patch("importlib.util.find_spec", return_value=object()),
+            patch("subprocess.run") as mock_subprocess,
+            patch(
+                "portex_eval.benchmark.harbor.results.write_harbor_artifacts",
+                return_value=(
+                    ("eval.csv", "task.csv", "criterion.csv", "judgement.csv"),
+                    type("RewardsPayload", (), {"task_ids": ["task-1"], "reward": [100.0]})(),
+                    "rl_rewards.json",
+                    "rl_training_data.json",
+                ),
+            ),
+        ):
+            run_harbor_tasks(
+                task_root=str(task_root),
+                extra_args=[
+                    "--agent",
+                    "portex-multimodal",
+                    "--model",
+                    "openrouter/google/gemini-3.1-pro-preview",
+                ],
+            )
+
+        cmd = mock_subprocess.call_args.args[0]
+        assert "--agent" not in cmd
+        assert "--agent-import-path" in cmd
+        assert PORTEX_MULTIMODAL_AGENT_IMPORT_PATH in cmd
+
+
+def test_run_harbor_tasks_injects_model_info_for_known_vision_models() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        task_root = Path(tmpdir)
+        (task_root / "datasets").mkdir()
+
+        with (
+            patch("importlib.util.find_spec", return_value=object()),
+            patch("subprocess.run") as mock_subprocess,
+            patch(
+                "portex_eval.benchmark.harbor.results.write_harbor_artifacts",
+                return_value=(
+                    ("eval.csv", "task.csv", "criterion.csv", "judgement.csv"),
+                    type("RewardsPayload", (), {"task_ids": ["task-1"], "reward": [100.0]})(),
+                    "rl_rewards.json",
+                    "rl_training_data.json",
+                ),
+            ),
+        ):
+            run_harbor_tasks(
+                task_root=str(task_root),
+                extra_args=["--model", "openrouter/google/gemini-3.1-pro-preview"],
+            )
+
+        cmd = mock_subprocess.call_args.args[0]
+        ak_values = [cmd[idx + 1] for idx, arg in enumerate(cmd[:-1]) if arg == "--ak"]
+        assert any(value.startswith("model_info=") for value in ak_values)
 
 
 def test_run_harbor_tasks_materializes_judge_api_keys() -> None:
@@ -226,3 +303,142 @@ def test_write_harbor_artifacts_emits_reports_and_rl_files() -> None:
 
         training_data = json.loads(Path(training_data_path).read_text(encoding="utf-8"))
         assert training_data["records"][0]["completion"] == "Answer: diagram"
+
+
+class _FakeResponse:
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.usage = {"input_tokens": 12, "output_tokens": 5}
+        self.raw = {
+            "choices": [
+                {
+                    "message": {"content": text},
+                }
+            ]
+        }
+
+
+class _FakeProvider:
+    provider_id = "openrouter"
+    model_name = "google/gemini-3.1-pro-preview"
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def agenerate(self, prompt: str, **kwargs: object) -> _FakeResponse:
+        self.calls.append({"prompt": prompt, **kwargs})
+        return _FakeResponse("Answer: spotted cat")
+
+
+class _FakeEnvironment:
+    def __init__(self, task_config: dict[str, object], refs: dict[str, bytes]) -> None:
+        self._task_config = task_config
+        self._refs = refs
+        self.exec_calls: list[str] = []
+        self.uploads: dict[str, str] = {}
+
+    async def download_file(self, source_path: str, target_path: Path | str) -> None:
+        destination = Path(target_path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if source_path == "/tests/task_config.json":
+            destination.write_text(json.dumps(self._task_config), encoding="utf-8")
+            return
+        destination.write_bytes(self._refs[source_path])
+
+    async def upload_file(self, source_path: Path | str, target_path: str) -> None:
+        self.uploads[target_path] = Path(source_path).read_text(encoding="utf-8")
+
+    async def exec(
+        self,
+        command: str,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        timeout_sec: int | None = None,
+    ) -> object:
+        del cwd, env, timeout_sec
+        self.exec_calls.append(command)
+        return object()
+
+
+class _FakeLLM:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def call(
+        self,
+        prompt: str,
+        message_history: list[dict[str, object]] = [],
+        logging_path: Path | None = None,
+        **kwargs: object,
+    ) -> LLMResponse:
+        del logging_path, kwargs
+        self.calls.append({"prompt": prompt, "message_history": message_history})
+        return LLMResponse(
+            content='{"analysis":"ok","plan":"done","commands":[],"task_complete":true}',
+            usage=type(
+                "Usage",
+                (),
+                {
+                    "prompt_tokens": 11,
+                    "completion_tokens": 7,
+                    "cache_tokens": 0,
+                    "cost_usd": 0.0,
+                },
+            )(),
+        )
+
+    def get_model_context_limit(self) -> int:
+        return 100000
+
+    def get_model_output_limit(self) -> int | None:
+        return 8192
+
+
+def test_portex_multimodal_agent_builds_first_turn_image_message(tmp_path: Path) -> None:
+    fake_provider = _FakeProvider()
+    fake_environment = _FakeEnvironment(
+        task_config={},
+        refs={"/app/refs/image.png": b"\x89PNG\r\n\x1a\nfake"},
+    )
+    with patch("portex_eval.benchmark.harbor.agent.get_provider", return_value=fake_provider):
+        agent = PortexMultimodalAgent(
+            logs_dir=tmp_path / "logs",
+            model_name="openrouter/google/gemini-3.1-pro-preview",
+        )
+        first_user_content, first_user_shadow, reference_meta = asyncio.run(
+            agent._build_initial_user_message(
+                environment=fake_environment,
+                instruction="Solve it.\n\nReference file path: `/app/refs/image.png`\n",
+                initial_prompt="Solve the task from the terminal.",
+                temp_root=tmp_path,
+            )
+        )
+
+    assert any(part.get("type") == "image" for part in first_user_content if isinstance(part, dict))
+    assert "attached separately" in first_user_shadow
+    assert reference_meta is not None
+    assert reference_meta["mode"] == "image"
+
+
+def test_portex_multimodal_chat_uses_multimodal_first_turn_and_stores_shadow() -> None:
+    fake_llm = _FakeLLM()
+    first_user_content = [
+        {"type": "text", "text": "Initial prompt"},
+        {"type": "image", "image": "/tmp/image.png", "detail": "high"},
+    ]
+    shadow = "Initial prompt\n\n[Reference image was attached separately: /app/refs/image.png]"
+    chat = PortexMultimodalChat(
+        fake_llm,
+        first_user_content=first_user_content,
+        first_user_shadow=shadow,
+    )
+
+    response = asyncio.run(chat.chat("ignored initial prompt"))
+
+    assert response.content
+    assert fake_llm.calls[0]["prompt"] == ""
+    assert fake_llm.calls[0]["message_history"] == [
+        {"role": "user", "content": first_user_content}
+    ]
+    assert chat.messages[0]["content"] == shadow
+    assert chat.messages[1]["content"] == response.content

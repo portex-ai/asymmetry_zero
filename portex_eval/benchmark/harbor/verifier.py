@@ -44,6 +44,10 @@ def load_criteria(criteria_path: str) -> list[dict[str, Any]]:
 
 
 def resolve_judge_specs(task_config: dict[str, Any]) -> list[Any]:
+    task_configs = task_config.get("judge_configs")
+    if isinstance(task_configs, list):
+        return normalize_judge_specs(task_configs, default_specs=DEFAULT_AGENT_JUDGE_MODELS)
+
     judge_configs = (os.environ.get("PORTEX_JUDGE_CONFIGS") or "").strip()
     if judge_configs:
         parsed = json.loads(judge_configs)
