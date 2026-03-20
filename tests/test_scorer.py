@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from portex_eval.grading import core as grading_core
+from portex_eval.providers.base import Response
 from portex_eval.benchmark.inspect.scorer import (
     _extract_final_answer,
     _grade_criterion_exact_match,
@@ -95,3 +96,34 @@ def test_parse_grade_from_response_tolerates_none() -> None:
 
     assert passed is False
     assert grade == "I"
+
+
+def test_grade_with_provider_captures_usage_latency_and_cost() -> None:
+    class FakeProvider:
+        provider_id = "openrouter"
+        model_name = "test-model"
+
+        async def agenerate(self, prompt: str) -> Response:  # noqa: ARG002
+            return Response(
+                text="Reasoning...\nGRADE: C",
+                usage={"input_tokens": 11, "output_tokens": 7, "total_tokens": 18},
+                latency=1.25,
+                cost=0.0042,
+            )
+
+    result = asyncio.run(
+        grading_core.grade_with_provider(
+            FakeProvider(),  # type: ignore[arg-type]
+            question="q",
+            answer="a",
+            criterion="c",
+            weight=2.0,
+        )
+    )
+
+    assert result["passed"] is True
+    assert result["input_tokens"] == 11
+    assert result["output_tokens"] == 7
+    assert result["total_tokens"] == 18
+    assert result["latency"] == 1.25
+    assert result["cost"] == 0.0042

@@ -75,6 +75,21 @@ def test_openrouter_parse_response_coerces_none_content(monkeypatch) -> None:
     assert response.text == ""
 
 
+def test_openrouter_parse_response_extracts_cost(monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    provider = get_provider("openrouter:openai/gpt-4o-mini")
+
+    response = provider._parse_response(  # type: ignore[attr-defined]
+        {
+            "choices": [{"message": {"content": "ok"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.1234},
+        }
+    )
+
+    assert response.usage == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+    assert response.cost == 0.1234
+
+
 def test_openai_compatible_parse_response_coerces_none_content() -> None:
     provider = OpenAICompatibleProvider(
         ModelConfig(provider="custom", model="demo", base_url="https://example.com/v1")

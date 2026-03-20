@@ -107,6 +107,34 @@ class TestHelperFunctions:
         assert tables._matches_criterion(None, "prompt") is False
         assert tables._matches_criterion("prompt", None) is False
 
+    def test_judge_usage_from_metadata_extracts_metrics(self) -> None:
+        usage = tables._judge_usage_from_metadata(
+            {
+                "input_tokens": 9,
+                "output_tokens": 3,
+                "total_tokens": 12,
+                "latency": 0.7,
+                "cost": 0.001,
+            }
+        )
+        assert usage["input_tokens"] == 9
+        assert usage["output_tokens"] == 3
+        assert usage["total_tokens"] == 12
+        assert usage["latency"] == pytest.approx(0.7)
+        assert usage["cost"] == pytest.approx(0.001)
+
+    def test_sum_judge_usage_aggregates_multiple_judges(self) -> None:
+        totals = tables._sum_judge_usage(
+            [
+                {"input_tokens": 10, "output_tokens": 4, "total_tokens": 14, "latency": 0.5},
+                {"input_tokens": 20, "output_tokens": 6, "total_tokens": 26, "latency": 0.8},
+            ]
+        )
+        assert totals["input_tokens"] == 30
+        assert totals["output_tokens"] == 10
+        assert totals["total_tokens"] == 40
+        assert totals["latency"] == pytest.approx(1.3)
+
 
 class TestSummarizeEvents:
     """Tests for event summarization."""

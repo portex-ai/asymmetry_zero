@@ -8,6 +8,7 @@ import logging
 import os
 import random
 import time
+from time import perf_counter
 from mimetypes import guess_type
 from pathlib import Path
 from typing import Any
@@ -178,8 +179,15 @@ class OpenRouterProvider(Provider):
             raise ValueError("No choices in response")
         content = choices[0].get("message", {}).get("content")
         text = content if isinstance(content, str) else ""
-        usage = normalize_usage_dict(data.get("usage"))
-        return Response(text=text, usage=usage, raw=data)
+        usage_payload = data.get("usage")
+        usage = normalize_usage_dict(usage_payload)
+        cost: float | None = None
+        if isinstance(usage_payload, dict) and usage_payload.get("cost") is not None:
+            try:
+                cost = float(usage_payload["cost"])
+            except (TypeError, ValueError):
+                cost = None
+        return Response(text=text, usage=usage, cost=cost, raw=data)
 
     def _handle_rate_limit(
         self,
@@ -218,6 +226,7 @@ class OpenRouterProvider(Provider):
         for attempt in range(self._max_retries):
             try:
                 with httpx.Client(timeout=self._timeout) as client:
+                    started_at = perf_counter()
                     response = client.post(
                         self._api_url,
                         json=payload,
@@ -230,7 +239,9 @@ class OpenRouterProvider(Provider):
                     continue
 
                 response.raise_for_status()
-                return self._parse_response(response.json())
+                parsed = self._parse_response(response.json())
+                parsed.latency = perf_counter() - started_at
+                return parsed
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429:
@@ -271,6 +282,7 @@ class OpenRouterProvider(Provider):
         for attempt in range(self._max_retries):
             try:
                 async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    started_at = perf_counter()
                     response = await client.post(
                         self._api_url,
                         json=payload,
@@ -283,7 +295,9 @@ class OpenRouterProvider(Provider):
                     continue
 
                 response.raise_for_status()
-                return self._parse_response(response.json())
+                parsed = self._parse_response(response.json())
+                parsed.latency = perf_counter() - started_at
+                return parsed
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429:

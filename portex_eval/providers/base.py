@@ -13,6 +13,8 @@ class Response:
 
     text: str
     usage: dict[str, int] | None = None
+    latency: float | None = None
+    cost: float | None = None
     raw: Any = None
 
 

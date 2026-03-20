@@ -81,6 +81,59 @@ def _judge_models_from_metadata(metadata: dict[str, Any]) -> list[str]:
     return judges
 
 
+def _judge_usage_from_metadata(judge: dict[str, Any]) -> dict[str, Any]:
+    def _to_int(key: str) -> int | None:
+        value = judge.get(key)
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _to_float(key: str) -> float | None:
+        value = judge.get(key)
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "input_tokens": _to_int("input_tokens"),
+        "output_tokens": _to_int("output_tokens"),
+        "total_tokens": _to_int("total_tokens"),
+        "latency": _to_float("latency"),
+        "cost": _to_float("cost"),
+    }
+
+
+def _sum_judge_usage(judges: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    totals: dict[str, float | int | None] = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "latency": 0.0,
+        "cost": 0.0,
+    }
+    seen: dict[str, bool] = {key: False for key in totals}
+    for judge in judges:
+        if not isinstance(judge, dict):
+            continue
+        usage = _judge_usage_from_metadata(judge)
+        for key, value in usage.items():
+            if value is None:
+                continue
+            seen[key] = True
+            totals[key] = (totals[key] or 0) + value
+    return {key: totals[key] if seen[key] else None for key in totals}
+
+
+def _coalesce(primary: Any, fallback: Any) -> Any:
+    return fallback if primary is None else primary
+
+
 def _score_prefix(tasks_df: pd.DataFrame) -> str:
     prefixes = sorted(
         {
@@ -366,6 +419,7 @@ def _build_criterion_level(
         judge_usage = _usage_for_models(usage, judge_models)
         for criterion in metadata.get("criteria", []) or []:
             prompt = criterion.get("prompt")
+            criteria_judge_usage = _sum_judge_usage(criterion.get("judges", []) or [])
             criterion_events = sample_events[
                 sample_events["model_event_criterion_prompt"].apply(
                     lambda event_prompt, p=prompt: _matches_criterion(event_prompt, p)
@@ -396,11 +450,21 @@ def _build_criterion_level(
                     "criteria_awarded": criterion.get("awarded"),
                     "criteria_passed": criterion.get("passed"),
                     "criteria_grade": criterion.get("grade"),
-                    "scorer_usage_data_latency": criterion_summary.get("latency"),
-                    "scorer_usage_data_input_tokens": judge_usage.get("input_tokens"),
-                    "scorer_usage_data_output_tokens": judge_usage.get("output_tokens"),
-                    "scorer_usage_data_total_tokens": judge_usage.get("total_tokens"),
-                    "scorer_usage_data_cost": criterion_summary.get("cost"),
+                    "scorer_usage_data_latency": _coalesce(
+                        criteria_judge_usage.get("latency"), criterion_summary.get("latency")
+                    ),
+                    "scorer_usage_data_input_tokens": _coalesce(
+                        criteria_judge_usage.get("input_tokens"), judge_usage.get("input_tokens")
+                    ),
+                    "scorer_usage_data_output_tokens": _coalesce(
+                        criteria_judge_usage.get("output_tokens"), judge_usage.get("output_tokens")
+                    ),
+                    "scorer_usage_data_total_tokens": _coalesce(
+                        criteria_judge_usage.get("total_tokens"), judge_usage.get("total_tokens")
+                    ),
+                    "scorer_usage_data_cost": _coalesce(
+                        criteria_judge_usage.get("cost"), criterion_summary.get("cost")
+                    ),
                 }
             )
     return pd.DataFrame(rows)
@@ -422,6 +486,7 @@ def _build_judgement_level(
             for judge in criterion.get("judges", []) or []:
                 judge_model = judge.get("model")
                 judge_usage = _usage_for_models(usage, [judge_model]) if judge_model else {}
+                judge_usage_from_metadata = _judge_usage_from_metadata(judge)
                 prompt = criterion.get("prompt")
                 judge_events = sample_events
                 if judge_model:
@@ -458,11 +523,24 @@ def _build_judgement_level(
                         "judge_passed": judge.get("passed"),
                         "judge_grade": judge.get("grade"),
                         "judge_reasoning": judge.get("explanation"),
-                        "scorer_usage_data_latency": judge_summary.get("latency"),
-                        "scorer_usage_data_input_tokens": judge_usage.get("input_tokens"),
-                        "scorer_usage_data_output_tokens": judge_usage.get("output_tokens"),
-                        "scorer_usage_data_total_tokens": judge_usage.get("total_tokens"),
-                        "scorer_usage_data_cost": judge_summary.get("cost"),
+                        "scorer_usage_data_latency": _coalesce(
+                            judge_usage_from_metadata.get("latency"), judge_summary.get("latency")
+                        ),
+                        "scorer_usage_data_input_tokens": _coalesce(
+                            judge_usage_from_metadata.get("input_tokens"),
+                            judge_usage.get("input_tokens"),
+                        ),
+                        "scorer_usage_data_output_tokens": _coalesce(
+                            judge_usage_from_metadata.get("output_tokens"),
+                            judge_usage.get("output_tokens"),
+                        ),
+                        "scorer_usage_data_total_tokens": _coalesce(
+                            judge_usage_from_metadata.get("total_tokens"),
+                            judge_usage.get("total_tokens"),
+                        ),
+                        "scorer_usage_data_cost": _coalesce(
+                            judge_usage_from_metadata.get("cost"), judge_summary.get("cost")
+                        ),
                     }
                 )
     return pd.DataFrame(rows)

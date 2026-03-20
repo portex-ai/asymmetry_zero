@@ -198,12 +198,18 @@ async def grade_with_provider(
     prompt = format_grading_prompt(question, answer, criterion)
     response = await provider.agenerate(prompt)
     passed, _ = parse_grade_from_response(response.text)
+    usage = response.usage if isinstance(response.usage, dict) else {}
     return {
         "model": f"{provider.provider_id}:{provider.model_name}",
         "grade": CORRECT if passed else INCORRECT,
         "passed": passed,
         "awarded": weight if passed else 0.0,
         "explanation": response.text,
+        "input_tokens": int(usage.get("input_tokens", 0) or 0),
+        "output_tokens": int(usage.get("output_tokens", 0) or 0),
+        "total_tokens": int(usage.get("total_tokens", 0) or 0),
+        "latency": response.latency,
+        "cost": response.cost,
     }
 
 
