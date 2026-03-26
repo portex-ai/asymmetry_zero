@@ -1,0 +1,7 @@
+schema_version: 1
+bundle_path: ./examples/simple_bundle
+judges:
+  - openrouter:openai/gpt-4o-mini
+  - openrouter:anthropic/claude-3.5-sonnet
+candidates:
+  - openrouter:meta-llama/llama-3.3-70b-instruct

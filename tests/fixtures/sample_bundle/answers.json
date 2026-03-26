@@ -1,0 +1,32 @@
+[
+  {
+    "task_id": "sample-task-1",
+    "reference_file": "",
+    "tools": [],
+    "criteria": [
+      {
+        "id": "sample-task-1-c1",
+        "name": "Exact capital",
+        "weight": 100,
+        "grader_type": "ExactMatch",
+        "semanticPrompt": "Paris"
+      }
+    ],
+    "passThreshold": 100
+  },
+  {
+    "task_id": "sample-task-2",
+    "reference_file": "",
+    "tools": [],
+    "criteria": [
+      {
+        "id": "sample-task-2-c1",
+        "name": "Exact sum",
+        "weight": 100,
+        "grader_type": "ExactMatch",
+        "semanticPrompt": "4"
+      }
+    ],
+    "passThreshold": 100
+  }
+]

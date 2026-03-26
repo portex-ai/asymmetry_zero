@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "prompts": [
+    {
+      "task_id": "geography-001",
+      "task_prompt": "What is the capital of France?",
+      "reference_file": ""
+    },
+    {
+      "task_id": "math-001",
+      "task_prompt": "Solve the following problem and show your reasoning: A store sells notebooks for $3 each. If you buy 4 or more, you get a 25% discount on the total cost. How many books are in the referenced image and what is the total cost?",
+      "reference_file": "math-001.webp"
+    },
+    {
+      "task_id": "science-001",
+      "task_prompt": "What is the chemical symbol for water?",
+      "reference_file": ""
+    },
+    {
+      "task_id": "fiction-001",
+      "task_prompt": "Identify the fictional character in the referenced image",
+      "reference_file": "fiction-001.webp"
+    }
+  ]
+}

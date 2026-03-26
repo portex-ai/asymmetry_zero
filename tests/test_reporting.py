@@ -1,0 +1,236 @@
+"""Tests for portex_eval.reporting module."""
+
+from __future__ import annotations
+
+import json
+import tempfile
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from portex_eval.reporting import load, tables
+
+
+class TestHelperFunctions:
+    """Unit tests for helper functions in tables module."""
+
+    def test_parse_json_returns_dict_from_valid_json(self) -> None:
+        result = tables._parse_json('{"key": "value"}')
+        assert result == {"key": "value"}
+
+    def test_parse_json_returns_empty_dict_for_none(self) -> None:
+        result = tables._parse_json(None)
+        assert result == {}
+
+    def test_parse_json_returns_dict_directly(self) -> None:
+        result = tables._parse_json({"existing": "dict"})
+        assert result == {"existing": "dict"}
+
+    def test_parse_json_returns_empty_for_invalid_json(self) -> None:
+        result = tables._parse_json("not valid json")
+        assert result == {}
+
+    def test_parse_json_returns_empty_for_non_dict_json(self) -> None:
+        result = tables._parse_json("[1, 2, 3]")
+        assert result == {}
+
+    def test_composite_id_extracts_parent_name(self) -> None:
+        result = tables._composite_id("/some/path/bundle_name/tasks.json")
+        assert result == "bundle_name"
+
+    def test_composite_id_returns_none_for_empty(self) -> None:
+        result = tables._composite_id(None)
+        assert result is None
+
+    def test_composite_id_returns_none_for_empty_string(self) -> None:
+        result = tables._composite_id("")
+        assert result is None
+
+    def test_usage_for_models_aggregates_tokens(self) -> None:
+        model_usage = {
+            "model-a": {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150},
+            "model-b": {"input_tokens": 200, "output_tokens": 100, "total_tokens": 300},
+        }
+        result = tables._usage_for_models(model_usage, ["model-a", "model-b"])
+        assert result["input_tokens"] == 300
+        assert result["output_tokens"] == 150
+        assert result["total_tokens"] == 450
+
+    def test_usage_for_models_returns_none_when_no_models_requested(self) -> None:
+        # No models to look up means found=False
+        model_usage = {"model-a": {"input_tokens": 100}}
+        result = tables._usage_for_models(model_usage, [])
+        assert result["input_tokens"] is None
+        assert result["output_tokens"] is None
+        assert result["total_tokens"] is None
+
+    def test_usage_for_models_returns_zero_for_missing_model(self) -> None:
+        # When model is not in usage dict, returns 0s (not None)
+        model_usage = {"model-a": {"input_tokens": 100}}
+        result = tables._usage_for_models(model_usage, ["model-x"])
+        assert result["input_tokens"] == 0
+        assert result["output_tokens"] == 0
+        assert result["total_tokens"] == 0
+
+    def test_judge_models_from_metadata_extracts_models(self) -> None:
+        metadata = {
+            "criteria": [
+                {"judges": [{"model": "judge-1"}, {"model": "judge-2"}]},
+                {"judges": [{"model": "judge-1"}]},
+            ]
+        }
+        result = tables._judge_models_from_metadata(metadata)
+        assert result == ["judge-1", "judge-2"]
+
+    def test_judge_models_from_metadata_handles_empty(self) -> None:
+        result = tables._judge_models_from_metadata({})
+        assert result == []
+
+    def test_score_prefix_prefers_provider_scorer_when_present(self) -> None:
+        frame = pd.DataFrame(
+            columns=[
+                "score_provider_scorer_metadata",
+                "score_provider_scorer_answer",
+            ]
+        )
+        assert tables._score_prefix(frame) == "score_provider_scorer"
+
+    def test_matches_criterion_true_for_matching_prompts(self) -> None:
+        assert tables._matches_criterion("prompt text", "prompt text") is True
+        assert tables._matches_criterion("  prompt text  ", "prompt text") is True
+
+    def test_matches_criterion_false_for_different_prompts(self) -> None:
+        assert tables._matches_criterion("prompt a", "prompt b") is False
+
+    def test_matches_criterion_false_for_none(self) -> None:
+        assert tables._matches_criterion(None, "prompt") is False
+        assert tables._matches_criterion("prompt", None) is False
+
+    def test_judge_usage_from_metadata_extracts_metrics(self) -> None:
+        usage = tables._judge_usage_from_metadata(
+            {
+                "input_tokens": 9,
+                "output_tokens": 3,
+                "total_tokens": 12,
+                "latency": 0.7,
+                "cost": 0.001,
+            }
+        )
+        assert usage["input_tokens"] == 9
+        assert usage["output_tokens"] == 3
+        assert usage["total_tokens"] == 12
+        assert usage["latency"] == pytest.approx(0.7)
+        assert usage["cost"] == pytest.approx(0.001)
+
+    def test_sum_judge_usage_aggregates_multiple_judges(self) -> None:
+        totals = tables._sum_judge_usage(
+            [
+                {"input_tokens": 10, "output_tokens": 4, "total_tokens": 14, "latency": 0.5},
+                {"input_tokens": 20, "output_tokens": 6, "total_tokens": 26, "latency": 0.8},
+            ]
+        )
+        assert totals["input_tokens"] == 30
+        assert totals["output_tokens"] == 10
+        assert totals["total_tokens"] == 40
+        assert totals["latency"] == pytest.approx(1.3)
+
+
+class TestSummarizeEvents:
+    """Tests for event summarization."""
+
+    def test_summarize_events_returns_none_for_empty_df(self) -> None:
+        empty_df = pd.DataFrame(columns=["model_event_time", "model_event_cost"])
+        result = tables._summarize_events(empty_df)
+        assert result["latency"] is None
+        assert result["cost"] is None
+
+    def test_summarize_events_sums_latency_and_cost(self) -> None:
+        df = pd.DataFrame(
+            {
+                "model_event_time": [1.5, 2.0, 0.5],
+                "model_event_cost": [0.01, 0.02, 0.01],
+            }
+        )
+        result = tables._summarize_events(df)
+        assert result["latency"] == pytest.approx(4.0)
+        assert result["cost"] == pytest.approx(0.04)
+
+
+class TestFilterEvents:
+    """Tests for filtering event dataframes."""
+
+    def test_filter_events_handles_empty_frame_without_expected_columns(self) -> None:
+        empty_df = pd.DataFrame()
+        result = tables._filter_events(empty_df, "grader", ["ExactMatch"])
+        assert result.empty
+
+    def test_filter_events_falls_back_to_model_when_role_unavailable(self) -> None:
+        df = pd.DataFrame(
+            {
+                "model_event_model": ["judge-a", "judge-b"],
+                "model_event_role": [pd.NA, pd.NA],
+            }
+        )
+        result = tables._filter_events(df, "grader", ["judge-b"])
+        assert len(result) == 1
+        assert result.iloc[0]["model_event_model"] == "judge-b"
+
+
+class TestLoadFunction:
+    """Tests for the load helper function."""
+
+    def test_load_reads_csv(self) -> None:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            f.write("col1,col2\n1,2\n3,4\n")
+            f.flush()
+            path = f.name
+
+        try:
+            df = load(path)
+            assert len(df) == 2
+            assert list(df.columns) == ["col1", "col2"]
+        finally:
+            Path(path).unlink()
+
+
+class TestEventCallCost:
+    """Tests for extracting cost from event calls."""
+
+    def test_event_call_cost_from_response_usage(self) -> None:
+        call = {"response": {"usage": {"cost": 0.05}}}
+        result = tables._event_call_cost(call)
+        assert result == pytest.approx(0.05)
+
+    def test_event_call_cost_from_json_string(self) -> None:
+        call = json.dumps({"response": {"usage": {"cost": 0.03}}})
+        result = tables._event_call_cost(call)
+        assert result == pytest.approx(0.03)
+
+    def test_event_call_cost_returns_none_for_missing(self) -> None:
+        call: dict[str, dict[str, float]] = {"response": {}}
+        result = tables._event_call_cost(call)
+        assert result is None
+
+    def test_event_call_cost_returns_none_for_none(self) -> None:
+        result = tables._event_call_cost(None)
+        assert result is None
+
+
+class TestEventCallCriterion:
+    """Tests for extracting criterion from event calls."""
+
+    def test_event_call_criterion_extracts_from_message(self) -> None:
+        content = "Some prefix\n***\n[Criterion]: Test criterion name\n***\n[END DATA]"
+        call = {"request": {"messages": [{"content": content}]}}
+        result = tables._event_call_criterion(call)
+        assert result == "Test criterion name"
+
+    def test_event_call_criterion_returns_none_for_no_match(self) -> None:
+        call = {"request": {"messages": [{"content": "No criterion here"}]}}
+        result = tables._event_call_criterion(call)
+        assert result is None
+
+    def test_event_call_criterion_returns_none_for_none(self) -> None:
+        result = tables._event_call_criterion(None)
+        assert result is None

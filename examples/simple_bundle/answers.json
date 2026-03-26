@@ -1,0 +1,111 @@
+[
+  {
+    "task_id": "geography-001",
+    "reference_file": "",
+    "tools": [],
+    "criteria": [
+      {
+        "id": "geography-001-c1",
+        "name": "correct-city",
+        "description": "States that Paris is the capital of France.",
+        "type": "semantic",
+        "grader_type": "ExactMatch",
+        "weight": 100,
+        "rationale": "Paris is the canonical answer for the capital of France.",
+        "examples": [],
+        "semanticPrompt": "Paris"
+      }
+    ],
+    "passThreshold": 100
+  },
+  {
+    "task_id": "math-001",
+    "reference_file": "",
+    "tools": [],
+    "criteria": [
+      {
+        "id": "math-001-c1",
+        "name": "correct-number-of-books",
+        "description": "Correct Number of Books",
+        "type": "semantic",
+        "grader_type": "llm-judge",
+        "weight": 30,
+        "rationale": "Correct Number of Books",
+        "examples": [],
+        "semanticPrompt": "response correctly identifies that 5 books are in the referenced image"
+      },
+      {
+        "id": "math-001-c2",
+        "name": "correct-answer",
+        "description": "Correct Final Answer",
+        "type": "semantic",
+        "grader_type": "llm-judge",
+        "weight": 30,
+        "rationale": "Correct Final Answer",
+        "examples": [],
+        "semanticPrompt": "response correctly identifies that the total cost is 11.25"
+      },
+      {
+        "id": "math-001-c3",
+        "name": "correct-answer",
+        "description": "Correct Identification of Discount Condition",
+        "type": "semantic",
+        "grader_type": "llm-judge",
+        "weight": 20,
+        "rationale": "Correct Identification of Discount Condition",
+        "examples": [],
+        "semanticPrompt": "The response must correctly identify wether the discount applies or not based on the number of books bought: 4 or more books = discount, less than 4 books = no discount"
+      },
+      { "id": "math-001-c4",
+        "name": "correct-answer",
+        "description": "Correct Arithmetic Operations",
+        "type": "semantic",
+        "grader_type": "llm-judge",
+        "weight": 20,
+        "rationale": "Correct Arithmetic Operations",
+        "examples": [],
+        "semanticPrompt": "Response includes the correct intermediate calculations: 1) if identifies 4 or more books, then number of books x 3 = total cost, 25% of total cost = discount, total cost - discount = final cost. If identifies less than 4 books, then number of books x 3 = total cost."
+      }
+
+    ],
+    "passThreshold": 100
+  },
+  {
+    "task_id": "science-001",
+    "reference_file": "",
+    "tools": [],
+    "criteria": [
+      {
+        "id": "science-001-c1",
+        "name": "correct-formula",
+        "description": "States that H2O is the chemical formula for water.",
+        "type": "semantic",
+        "grader_type": "ExactMatch",
+        "weight": 100,
+        "rationale": "H2O is the canonical answer for the chemical formula for water.",
+        "examples": [],
+        "semanticPrompt": "H₂O"
+      }
+    ],
+    "passThreshold": 100
+  },
+  {
+    "task_id": "fiction-001",
+    "reference_file": "",
+    "tools": [],
+    "criteria": [
+      {
+        "id": "fiction-001-c1",
+        "name": "correct-character",
+        "description": "States that Halaster Blackcloak is the main character of the story.",
+        "type": "semantic",
+        "grader_type": "ExactMatch",
+        "weight": 100,
+        "rationale": "Halaster Blackcloak is the canonical answer for the main character of the story.",
+        "examples": [],
+        "semanticPrompt": "Halaster Blackcloak"
+      }
+    ],
+    "passThreshold": 100
+  }
+]

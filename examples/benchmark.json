@@ -1,0 +1,42 @@
+[
+  {
+    "task": "What is the capital of France?",
+    "criteria": [
+      {
+        "id": "capital-exact",
+        "name": "Exact capital",
+        "weight": 100,
+        "grader_type": "ExactMatch",
+        "semanticPrompt": "Paris"
+      }
+    ],
+    "reference_file": ""
+  },
+  {
+    "task": "How many books are shown in the reference image?",
+    "reference_file": "simple_bundle/refs/math-001.webp",
+    "criteria": [
+      {
+        "id": "book-count",
+        "name": "Correct count",
+        "weight": 100,
+        "grader_type": "ExactMatch",
+        "semanticPrompt": "5"
+      }
+    ]
+  },
+  {
+    "task": "What is the chemical symbol for water?",
+    "reference_file": "",
+    "criteria": [
+      {
+        "id": "water-symbol",
+        "name": "Exact symbol",
+        "weight": 100,
+        "grader_type": "ExactMatch",
+        "semanticPrompt": "H2O"
+      }
+    ],
+    "passThreshold": 100
+  }
+]
